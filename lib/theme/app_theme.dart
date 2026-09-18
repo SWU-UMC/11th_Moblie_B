@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
 import 'app_colors.dart';
 import 'app_text_styles.dart';
 
@@ -8,39 +6,33 @@ abstract final class AppTheme {
   static final ThemeData light = ThemeData(
     useMaterial3: true,
     fontFamily: 'Manrope',
-    scaffoldBackgroundColor: AppColors.warmWhite,
+    scaffoldBackgroundColor: AppColors.surfaceBase,
 
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: AppColors.violet,
-    ).copyWith(
-      primary: AppColors.violet,
-      onPrimary: AppColors.white,
-      surface: AppColors.warmWhite,
-      onSurface: AppColors.black,
+    colorScheme: const ColorScheme.light(
+      primary: AppColors.primary500,
+      primaryContainer: AppColors.primary100,
+      secondary: AppColors.primary200,
+      surface: AppColors.surfaceBase,
+      surfaceVariant: AppColors.neutral200,
+      outlineVariant: AppColors.neutral400,
+      onSurface: AppColors.neutral900,
+      outline: AppColors.primary500,
     ),
-
+    
     textTheme: const TextTheme(
-      titleLarge: AppTextStyles.titleLarge,
-      titleMedium: AppTextStyles.titleMedium,
-      bodyMedium: AppTextStyles.bodyMedium,
-      bodySmall: AppTextStyles.bodySmall,
+      headlineSmall: AppTextStyles.headlineSmall, // 이름
+      titleLarge: AppTextStyles.titleLarge,       // 통계 숫자
+      titleMedium: AppTextStyles.titleMedium,     // 장르 타이틀
+      bodyMedium: AppTextStyles.bodyMedium,       // 본문
+      labelLarge: AppTextStyles.labelLarge,       // 버튼/칩 텍스트
+      labelSmall: AppTextStyles.labelSmall,       // 통계 라벨
     ),
-
+    
     appBarTheme: const AppBarTheme(
-      backgroundColor: AppColors.warmWhite,
-      foregroundColor: AppColors.black,
-      centerTitle: true,
+      backgroundColor: AppColors.surfaceBase,
+      foregroundColor: AppColors.primary500,
       elevation: 0,
-      scrolledUnderElevation: 0,
-      shadowColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      systemOverlayStyle: SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        statusBarBrightness: Brightness.light,
-        systemNavigationBarColor: AppColors.warmWhite,
-        systemNavigationBarIconBrightness: Brightness.dark,
-      ),
+      centerTitle: false,
     ),
   );
 }
