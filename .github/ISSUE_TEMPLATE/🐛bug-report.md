@@ -1,5 +1,5 @@
 ---
-name: "\U0001F41EBug"
+name: "\U0001F41BBug report"
 about: 버그를 신고할 때 사용
 title: "[\U0001F41BFix]"
 labels: bug
