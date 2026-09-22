@@ -16,6 +16,8 @@ class MovieLogApp extends StatelessWidget {
       );
 }
 
+
+
 class StartScreen extends StatelessWidget {
   const StartScreen({super.key});
 
