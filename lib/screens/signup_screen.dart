@@ -86,6 +86,8 @@ class _SignupScreenState extends State<SignupScreen> {
         titleColor: colors.primary,
         leading: IconButton(
           onPressed: () {}, // Required Mission에서는 뒤로가기 네비게이션을 연결하지 않습니다.
+          // SVG 아이콘만 있으면 스크린 리더가 버튼 이름을 읽을 수 없어, 기본 BackButton과 같은 문구를 붙입니다.
+          tooltip: MaterialLocalizations.of(context).backButtonTooltip,
           icon: SvgPicture.asset(
             'assets/icons/arrow_back.svg',
             width: 24,
