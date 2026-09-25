@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+import 'router/app_router.dart';
+import 'theme/app_theme.dart';
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+void main() => runApp(MovieLogApp());
+
+final _appRouter = createAppRouter();
+
+class MovieLogApp extends StatelessWidget {
+  MovieLogApp({super.key, GoRouter? router}) : router = router ?? _appRouter;
+
+  final GoRouter router;
 
   @override
-  Widget build(BuildContext context) {
-    return const MaterialApp(
-      home: Scaffold(
-        body: Center(
-          child: Text('MovieLog에 오신 걸 환영합니다!'),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => MaterialApp.router(
+    debugShowCheckedModeBanner: false,
+    theme: AppTheme.light,
+    routerConfig: router,
+  );
 }
