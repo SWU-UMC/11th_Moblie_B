@@ -13,23 +13,34 @@ class FavoriteGenres extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('선호 장르', style: textTheme.titleSmall),
-        const SizedBox(height: 8),
+        Text(
+          '선호하는 장르',
+          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 16),
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: _genres
-              .map(
-                (genre) => Chip(
-                  label: Text(genre),
-                  backgroundColor: colors.surface,
-                  side: BorderSide(color: colors.primary),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
+          children: [
+            for (final genre in _genres)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: colors.primaryContainer.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  genre,
+                  style: textTheme.labelLarge?.copyWith(
+                    color: colors.onPrimaryContainer,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              )
-              .toList(),
+              ),
+          ],
         ),
       ],
     );

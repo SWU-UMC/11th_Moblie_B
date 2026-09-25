@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:go_router/go_router.dart';
 
 import '../widgets/movielog_app_bar.dart';
 
@@ -71,7 +72,8 @@ class _SignupScreenState extends State<SignupScreen> {
     FocusScope.of(context).unfocus();
     final isValid = _formKey.currentState?.validate() ?? false;
     if (isValid && _agreedToTerms) {
-      // API 없이 화면 내부 상태만 사용합니다. 실제 가입 처리는 이후 주차에서 연결합니다.
+      // API 없이 화면 내부 상태만 사용합니다. go로 이동해 회원가입 화면을 스택에서 제거합니다.
+      context.go('/home');
     }
   }
 
@@ -80,85 +82,76 @@ class _SignupScreenState extends State<SignupScreen> {
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return Scaffold(
-      appBar: MovieLogAppBar(
-        title: '회원가입',
-        titleColor: colors.primary,
-        leading: IconButton(
-          onPressed: () {}, // Required Mission에서는 뒤로가기 네비게이션을 연결하지 않습니다.
-          icon: SvgPicture.asset(
-            'assets/icons/arrow_back.svg',
-            width: 24,
-            height: 24,
-            colorFilter: ColorFilter.mode(colors.onSurface, BlendMode.srcIn),
-          ),
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        appBar: MovieLogAppBar(
+          title: '회원가입',
+          titleColor: colors.primary,
+          // 회원가입 화면에서는 뒤로 가기를 허용하지 않으므로 뒤로가기 버튼을 두지 않습니다.
+          automaticallyImplyLeading: false,
         ),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: _formKey,
-            autovalidateMode: AutovalidateMode.onUserInteraction,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  '환영합니다!\n간단한 정보만 입력하고 시작해보세요.',
-                  textAlign: TextAlign.center,
-                  style: textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 32),
-                _AuthTextField(
-                  label: '닉네임',
-                  hintText: '닉네임을 입력해주세요',
-                  controller: _nicknameController,
-                  validator: _validateNickname,
-                  touched: _nicknameTouched,
-                  textInputAction: TextInputAction.next,
-                  onChanged: (_) => setState(() => _nicknameTouched = true),
-                  onFieldSubmitted: (_) =>
-                      FocusScope.of(context).nextFocus(),
-                ),
-                const SizedBox(height: 20),
-                _AuthTextField(
-                  label: '이메일',
-                  hintText: '이메일 주소를 입력해주세요',
-                  controller: _emailController,
-                  validator: _validateEmail,
-                  touched: _emailTouched,
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.next,
-                  onChanged: (_) => setState(() => _emailTouched = true),
-                  onFieldSubmitted: (_) => FocusScope.of(
-                    context,
-                  ).requestFocus(_passwordFocusNode),
-                ),
-                const SizedBox(height: 20),
-                _AuthTextField(
-                  label: '비밀번호',
-                  hintText: '비밀번호를 입력해주세요',
-                  controller: _passwordController,
-                  validator: _validatePassword,
-                  touched: _passwordTouched,
-                  obscureText: true,
-                  focusNode: _passwordFocusNode,
-                  textInputAction: TextInputAction.done,
-                  onChanged: (_) => setState(() => _passwordTouched = true),
-                  onFieldSubmitted: (_) => _handleSubmit(),
-                ),
-                const SizedBox(height: 24),
-                _TermsCheckbox(
-                  value: _agreedToTerms,
-                  onChanged: (value) =>
-                      setState(() => _agreedToTerms = value),
-                ),
-                const SizedBox(height: 16),
-                _SubmitButton(
-                  enabled: _canSubmit,
-                  onPressed: _handleSubmit,
-                ),
-              ],
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Form(
+              key: _formKey,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '환영합니다!\n간단한 정보만 입력하고 시작해보세요.',
+                    textAlign: TextAlign.center,
+                    style: textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 32),
+                  _AuthTextField(
+                    label: '닉네임',
+                    hintText: '닉네임을 입력해주세요',
+                    controller: _nicknameController,
+                    validator: _validateNickname,
+                    touched: _nicknameTouched,
+                    textInputAction: TextInputAction.next,
+                    onChanged: (_) => setState(() => _nicknameTouched = true),
+                    onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                  ),
+                  const SizedBox(height: 20),
+                  _AuthTextField(
+                    label: '이메일',
+                    hintText: '이메일 주소를 입력해주세요',
+                    controller: _emailController,
+                    validator: _validateEmail,
+                    touched: _emailTouched,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
+                    onChanged: (_) => setState(() => _emailTouched = true),
+                    onFieldSubmitted: (_) =>
+                        FocusScope.of(context).requestFocus(_passwordFocusNode),
+                  ),
+                  const SizedBox(height: 20),
+                  _AuthTextField(
+                    label: '비밀번호',
+                    hintText: '비밀번호를 입력해주세요',
+                    controller: _passwordController,
+                    validator: _validatePassword,
+                    touched: _passwordTouched,
+                    obscureText: true,
+                    focusNode: _passwordFocusNode,
+                    textInputAction: TextInputAction.done,
+                    onChanged: (_) => setState(() => _passwordTouched = true),
+                    onFieldSubmitted: (_) => _handleSubmit(),
+                  ),
+                  const SizedBox(height: 24),
+                  _TermsCheckbox(
+                    value: _agreedToTerms,
+                    onChanged: (value) =>
+                        setState(() => _agreedToTerms = value),
+                  ),
+                  const SizedBox(height: 16),
+                  _SubmitButton(enabled: _canSubmit, onPressed: _handleSubmit),
+                ],
+              ),
             ),
           ),
         ),
