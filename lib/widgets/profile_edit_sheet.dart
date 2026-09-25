@@ -43,8 +43,9 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return Padding(
-      // 키보드가 올라오면 BottomSheet도 함께 올라가도록 합니다.
+    // 키보드가 올라오면 BottomSheet도 함께 올라가도록 합니다.
+    // 화면이 작아 내용이 넘치면 스크롤해서 저장 버튼까지 볼 수 있습니다.
+    return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         24,
         0,

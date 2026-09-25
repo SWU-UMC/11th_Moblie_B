@@ -18,8 +18,13 @@ class GenreFilterChips extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
+    // 기본 높이 40에 글자 확대로 늘어난 만큼을 더해, 큰 글씨 설정에서도 Chip이 잘리지 않게 합니다.
+    final labelSize = textTheme.labelLarge?.fontSize ?? 14;
+    final extraHeight =
+        MediaQuery.textScalerOf(context).scale(labelSize) - labelSize;
+
     return SizedBox(
-      height: 40,
+      height: 40 + extraHeight,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),

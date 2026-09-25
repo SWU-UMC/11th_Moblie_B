@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,6 +8,8 @@ import 'package:movielog/router/app_router.dart';
 import 'package:movielog/screens/signup_screen.dart';
 import 'package:movielog/screens/start_screen.dart';
 import 'package:movielog/theme/app_theme.dart';
+import 'package:movielog/widgets/genre_filter_chips.dart';
+import 'package:movielog/widgets/movie_card.dart';
 
 void main() {
   Future<GoRouter> pumpApp(
@@ -186,5 +189,86 @@ void main() {
     await tester.pump();
 
     expect(submitButton().onPressed, isNotNull);
+  });
+
+  testWidgets('Genre chips are not clipped with large text scale', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+          child: Scaffold(
+            body: GenreFilterChips(
+              genres: const ['전체', '드라마'],
+              selectedGenre: '전체',
+              onSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final chipRect = tester.getRect(find.byType(ChoiceChip).first);
+    final labelRect = tester.getRect(find.text('전체'));
+    expect(labelRect.bottom, lessThanOrEqualTo(chipRect.bottom));
+    expect(labelRect.top, greaterThanOrEqualTo(chipRect.top));
+  });
+
+  testWidgets('Movie card opens detail with keyboard', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester, initialLocation: '/movies');
+
+    // Tab으로 첫 번째 카드까지 포커스를 옮긴 뒤 Enter로 엽니다.
+    for (var i = 0; i < 20; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final focused = FocusManager.instance.primaryFocus?.context;
+      if (focused != null &&
+          focused.findAncestorWidgetOfExactType<MovieCard>() != null) {
+        break;
+      }
+    }
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cinema Archive'), findsOneWidget);
+  });
+
+  testWidgets('Profile edit sheet scrolls to save button on small screen', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final router = createAppRouter(initialLocation: '/my');
+    await tester.pumpWidget(MovieLogApp(router: router));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('프로필 수정'));
+    await tester.pumpAndSettle();
+
+    // 시트가 열린 상태에서 키보드가 올라온 상황을 흉내 냅니다.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 260);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    final saveButton = find.widgetWithText(FilledButton, '저장');
+    await tester.scrollUntilVisible(
+      saveButton,
+      50,
+      scrollable: find
+          .descendant(
+            of: find.byType(BottomSheet),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+    expect(find.text('프로필을 수정했어요.'), findsOneWidget);
   });
 }
