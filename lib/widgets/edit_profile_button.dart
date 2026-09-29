@@ -10,7 +10,8 @@ class EditProfileButton extends StatelessWidget {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: () {}, // 1주차에는 화면 이동이나 저장 기능을 연결하지 않습니다.
+        // 수정 기능이 아직 없으므로, 눌러도 반응하지 않는 버튼이 활성화되어 보이지 않게 비활성화합니다.
+        onPressed: null,
         style: ElevatedButton.styleFrom(
           backgroundColor: colors.primary,
           foregroundColor: colors.onPrimary,
