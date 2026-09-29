@@ -47,6 +47,11 @@ void main() {
   });
 
   testWidgets('잘못 입력하면 한국어 오류 메시지가 보인다', (tester) async {
+    // 휴대폰 크기(360x640)에서 확인
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
     await tester.pumpWidget(const MovieLogApp());
 
     await tester.enterText(_field('닉네임을 입력해주세요'), 'a');
