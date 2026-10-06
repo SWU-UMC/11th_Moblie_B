@@ -86,9 +86,9 @@ const mockMovies = <Movie>[
 const allGenresLabel = '전체';
 const movieGenres = [allGenresLabel, '드라마', 'SF', '애니메이션', '스릴러', '로맨스', '코미디'];
 
-List<Movie> moviesByGenre(String genre) {
-  if (genre == allGenresLabel) return mockMovies;
-  return mockMovies.where((movie) => movie.genres.contains(genre)).toList();
+List<Movie> filterByGenre(List<Movie> movies, String genre) {
+  if (genre == allGenresLabel) return movies;
+  return movies.where((movie) => movie.genres.contains(genre)).toList();
 }
 
 Movie? findMovieById(String id) {

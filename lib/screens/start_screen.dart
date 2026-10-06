@@ -42,17 +42,35 @@ class StartScreen extends StatelessWidget {
                   ),
                 ],
               ),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => context.pushReplacement('/signup'),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(0, 48),
-                    backgroundColor: colors.primary,
-                    foregroundColor: colors.onPrimary,
+              Column(
+                children: [
+                  // 이미 가입한 사용자는 회원가입 없이 바로 홈으로 이동합니다.
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () => context.go('/home'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 48),
+                        foregroundColor: colors.primary,
+                        side: BorderSide(color: colors.primary),
+                      ),
+                      child: const Text('로그인'),
+                    ),
                   ),
-                  child: const Text('시작하기'),
-                ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => context.pushReplacement('/signup'),
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(0, 48),
+                        backgroundColor: colors.primary,
+                        foregroundColor: colors.onPrimary,
+                      ),
+                      child: const Text('시작하기'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

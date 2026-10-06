@@ -25,6 +25,6 @@ void main() {
 
   // 연습 4: nullable 닉네임 처리
   String? nickname;
-  print(displayName(nickname));       // 이름 없음
+  print(displayName(nickname)); // 이름 없음
   print(displayName('  무비러버  ')); // 무비러버
 }
