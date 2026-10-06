@@ -1,23 +1,24 @@
 import 'package:flutter/material.dart';
 
 class EditProfileButton extends StatelessWidget {
-  const EditProfileButton({super.key});
+  const EditProfileButton({super.key, required this.onPressed});
+
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
 
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        // 수정 기능이 아직 없으므로, 눌러도 반응하지 않는 버튼이 활성화되어 보이지 않게 비활성화합니다.
-        onPressed: null,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: colors.primary,
-          foregroundColor: colors.onPrimary,
-        ),
-        child: const Text('프로필 수정'),
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(120, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        foregroundColor: colors.primary,
+        side: BorderSide(color: colors.primary),
+        textStyle: const TextStyle(fontWeight: FontWeight.bold),
       ),
+      child: const Text('프로필 수정'),
     );
   }
 }

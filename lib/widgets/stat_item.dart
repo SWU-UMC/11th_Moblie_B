@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_colors.dart';
+
 class StatItem extends StatelessWidget {
   const StatItem({super.key, required this.label, required this.value});
 
@@ -12,17 +14,23 @@ class StatItem extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
       decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border.all(color: colors.primary),
-        borderRadius: BorderRadius.circular(12),
+        color: colors.primary.withValues(alpha: 0.05),
+        border: Border.all(color: colors.primary.withValues(alpha: 0.15)),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         children: [
-          Text(value, style: textTheme.titleLarge),
-          const SizedBox(height: 4),
-          Text(label),
+          Text(label, style: textTheme.bodyMedium),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: textTheme.headlineSmall?.copyWith(
+              color: AppColors.primaryDark,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
         ],
       ),
     );
