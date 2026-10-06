@@ -28,6 +28,9 @@ class _MoviesScreenState extends State<MoviesScreen> {
   late final GenrePreferences _genrePreferences;
   String _selectedGenre = allGenresLabel;
 
+  // 저장된 장르를 불러오는 동안 사용자가 고른 장르는 덮어쓰지 않습니다.
+  bool _userSelectedGenre = false;
+
   // build는 여러 번 호출되므로 Future는 initState와 재시도에서만 만듭니다.
   late Future<List<Movie>> _moviesFuture;
 
@@ -41,15 +44,23 @@ class _MoviesScreenState extends State<MoviesScreen> {
   }
 
   Future<void> _restoreLastGenre() async {
-    final saved = await _genrePreferences.loadLastGenre();
-    // await 사이에 화면이 사라졌을 수 있으므로 setState 전에 확인합니다.
-    if (!mounted) return;
-    if (saved != null && movieGenres.contains(saved)) {
-      setState(() => _selectedGenre = saved);
+    final String? saved;
+    try {
+      saved = await _genrePreferences.loadLastGenre();
+    } catch (error) {
+      // 읽기에 실패하면 기본 장르(전체)를 그대로 보여줍니다.
+      debugPrint('마지막 장르 불러오기 실패: $error');
+      return;
     }
+    // await 사이에 화면이 사라졌을 수 있으므로 setState 전에 확인합니다.
+    if (!mounted || _userSelectedGenre) return;
+    if (saved == null || !movieGenres.contains(saved)) return;
+    final genre = saved;
+    setState(() => _selectedGenre = genre);
   }
 
   void _selectGenre(String genre) {
+    _userSelectedGenre = true;
     setState(() => _selectedGenre = genre);
     _genrePreferences.saveLastGenre(genre);
   }

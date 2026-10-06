@@ -16,9 +16,20 @@ enum MovieLoadMode {
   errorOnce;
 
   /// `--dart-define=MOVIE_LOAD_MODE=empty`처럼 실행 시 모드를 고를 수 있습니다.
+  /// 값이 없으면 success를 쓰고, 오타처럼 알 수 없는 값이면 바로 알려줍니다.
   static MovieLoadMode fromEnvironment() {
     const name = String.fromEnvironment('MOVIE_LOAD_MODE');
-    return values.asNameMap()[name] ?? success;
+    if (name.isEmpty) return success;
+
+    final mode = values.asNameMap()[name];
+    if (mode == null) {
+      throw ArgumentError.value(
+        name,
+        'MOVIE_LOAD_MODE',
+        '${values.map((mode) => mode.name).join(', ')} 중 하나여야 합니다',
+      );
+    }
+    return mode;
   }
 }
 
