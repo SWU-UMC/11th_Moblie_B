@@ -6,68 +6,277 @@
 // tree, read text, and verify that the values of widget properties are correct.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:movielog/main.dart';
-import 'package:movielog/screens/profile_screen.dart';
+import 'package:movielog/router/app_router.dart';
+import 'package:movielog/screens/signup_screen.dart';
+import 'package:movielog/screens/start_screen.dart';
 import 'package:movielog/theme/app_theme.dart';
+import 'package:movielog/widgets/genre_filter_chips.dart';
+import 'package:movielog/widgets/movie_card.dart';
 
 void main() {
+  Future<GoRouter> pumpApp(
+    WidgetTester tester, {
+    String initialLocation = '/',
+  }) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    final router = createAppRouter(initialLocation: initialLocation);
+    await tester.pumpWidget(MovieLogApp(router: router));
+    await tester.pumpAndSettle();
+    return router;
+  }
+
   testWidgets('StartScreen shows title and CTA button', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MovieLogApp());
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const StartScreen()),
+    );
 
     expect(find.text('영화의 순간을\n기록하세요'), findsOneWidget);
     expect(find.widgetWithText(ElevatedButton, '시작하기'), findsOneWidget);
   });
 
-  testWidgets('StartScreen scrolls to CTA on a short screen', (
+  testWidgets('Start -> Signup -> Home, and back is blocked', (
     WidgetTester tester,
   ) async {
-    tester.view.physicalSize = const Size(320, 480);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+    final router = await pumpApp(tester);
 
-    await tester.pumpWidget(const MovieLogApp());
-    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('시작하기'));
+    await tester.pumpAndSettle();
+    expect(find.text('회원가입'), findsOneWidget);
+    expect(router.canPop(), isFalse);
 
-    final startButton = find.widgetWithText(ElevatedButton, '시작하기');
-    await tester.scrollUntilVisible(startButton, 50);
-    expect(startButton, findsOneWidget);
+    final fields = find.byType(TextFormField);
+    await tester.enterText(fields.at(0), '무비러버');
+    await tester.enterText(fields.at(1), 'movie@example.com');
+    await tester.enterText(fields.at(2), 'password123');
+    await tester.tap(find.text('필수 약관에 동의합니다'));
+    await tester.pump();
+    await tester.tap(find.text('가입하기'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('오늘은 어떤\n영화를 볼까요?'), findsOneWidget);
+    expect(router.canPop(), isFalse);
+
+    // 시스템 뒤로 가기를 눌러도 홈에 그대로 머뭅니다.
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('오늘은 어떤\n영화를 볼까요?'), findsOneWidget);
   });
 
-  testWidgets('StartScreen keeps CTA at the bottom on a tall screen', (
+  testWidgets('Home featured card opens detail and returns back', (
     WidgetTester tester,
   ) async {
-    tester.view.physicalSize = const Size(412, 915);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+    await pumpApp(tester, initialLocation: '/home');
 
-    await tester.pumpWidget(const MovieLogApp());
+    await tester.tap(find.text('상세보기'));
+    await tester.pumpAndSettle();
 
-    // 화면 하단 여백(32) 바로 위에 버튼이 위치해야 합니다.
-    final buttonRect = tester.getRect(
-      find.widgetWithText(ElevatedButton, '시작하기'),
+    expect(find.text('Cinema Archive'), findsOneWidget);
+    expect(find.text('별빛 아래 우리'), findsOneWidget);
+    expect(find.text('2024 • 로맨스/드라마 • 124분'), findsOneWidget);
+
+    // AppBar의 첫 번째 IconButton이 뒤로가기 버튼입니다.
+    await tester.tap(find.byType(IconButton).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('오늘은 어떤\n영화를 볼까요?'), findsOneWidget);
+  });
+
+  testWidgets('NavigationBar switches tabs and genre chip filters movies', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester, initialLocation: '/home');
+
+    await tester.tap(find.text('영화'));
+    await tester.pumpAndSettle();
+    expect(find.text('별빛 아래 우리'), findsOneWidget);
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      1,
     );
-    expect(buttonRect.bottom, closeTo(915 - 32, 1));
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'SF'));
+    await tester.pumpAndSettle();
+    expect(find.text('우주의 끝에서'), findsOneWidget);
+    expect(find.text('별빛 아래 우리'), findsNothing);
+
+    await tester.tap(find.text('마이'));
+    await tester.pumpAndSettle();
+    expect(find.text('내 프로필'), findsOneWidget);
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      2,
+    );
   });
 
-  testWidgets('ProfileScreen scrolls on a short screen', (
+  testWidgets('Detail rating dialog and favorite snackbar', (
     WidgetTester tester,
   ) async {
-    tester.view.physicalSize = const Size(320, 480);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+    await pumpApp(tester, initialLocation: '/movies/under-the-starlight');
 
+    await tester.tap(find.text('평점 남기기'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+
+    FilledButton saveButton() =>
+        tester.widget<FilledButton>(find.widgetWithText(FilledButton, '저장'));
+    expect(saveButton().onPressed, isNull);
+
+    final stars = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byIcon(Icons.star_rounded),
+    );
+    await tester.tap(stars.last);
+    await tester.pumpAndSettle();
+    expect(saveButton().onPressed, isNotNull);
+
+    await tester.tap(find.text('저장'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.textContaining('점을 남겼어요.'), findsOneWidget);
+
+    await tester.tap(find.text('즐겨찾기'));
+    await tester.pumpAndSettle();
+    expect(find.text('즐겨찾기에 추가했어요.'), findsOneWidget);
+    expect(find.byIcon(Icons.bookmark), findsOneWidget);
+
+    await tester.tap(find.text('즐겨찾기 해제'));
+    await tester.pumpAndSettle();
+    expect(find.text('즐겨찾기에서 삭제했어요.'), findsOneWidget);
+    expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
+  });
+
+  testWidgets('Profile edit opens a bottom sheet', (WidgetTester tester) async {
+    await pumpApp(tester, initialLocation: '/my');
+
+    await tester.tap(find.text('프로필 수정'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, '시네필');
+    await tester.tap(find.text('저장'));
+    await tester.pumpAndSettle();
+    expect(find.text('시네필'), findsOneWidget);
+    expect(find.text('프로필을 수정했어요.'), findsOneWidget);
+  });
+
+  testWidgets('SignupScreen validates fields and toggles submit button', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(
-      MaterialApp(theme: AppTheme.light, home: const ProfileScreen()),
+      MaterialApp(theme: AppTheme.light, home: const SignupScreen()),
     );
+
+    final submitButtonFinder = find.widgetWithText(ElevatedButton, '가입하기');
+    ElevatedButton submitButton() =>
+        tester.widget<ElevatedButton>(submitButtonFinder);
+
+    expect(submitButton().onPressed, isNull);
+
+    await tester.enterText(find.byType(TextFormField).at(0), 'a');
+    await tester.pump();
+    expect(find.text('닉네임은 2자 이상이어야 합니다.'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextFormField).at(0), '무비러버');
+    await tester.enterText(
+      find.byType(TextFormField).at(1),
+      'movie@example.com',
+    );
+    await tester.enterText(find.byType(TextFormField).at(2), 'password123');
+    await tester.tap(find.text('필수 약관에 동의합니다'));
+    await tester.pump();
+
+    expect(submitButton().onPressed, isNotNull);
+  });
+
+  testWidgets('Genre chips are not clipped with large text scale', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+          child: Scaffold(
+            body: GenreFilterChips(
+              genres: const ['전체', '드라마'],
+              selectedGenre: '전체',
+              onSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final chipRect = tester.getRect(find.byType(ChoiceChip).first);
+    final labelRect = tester.getRect(find.text('전체'));
+    expect(labelRect.bottom, lessThanOrEqualTo(chipRect.bottom));
+    expect(labelRect.top, greaterThanOrEqualTo(chipRect.top));
+  });
+
+  testWidgets('Movie card opens detail with keyboard', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester, initialLocation: '/movies');
+
+    // Tab으로 첫 번째 카드까지 포커스를 옮긴 뒤 Enter로 엽니다.
+    for (var i = 0; i < 20; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final focused = FocusManager.instance.primaryFocus?.context;
+      if (focused != null &&
+          focused.findAncestorWidgetOfExactType<MovieCard>() != null) {
+        break;
+      }
+    }
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cinema Archive'), findsOneWidget);
+  });
+
+  testWidgets('Profile edit sheet scrolls to save button on small screen', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final router = createAppRouter(initialLocation: '/my');
+    await tester.pumpWidget(MovieLogApp(router: router));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('프로필 수정'));
+    await tester.pumpAndSettle();
+
+    // 시트가 열린 상태에서 키보드가 올라온 상황을 흉내 냅니다.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 260);
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
-    final editButton = find.widgetWithText(ElevatedButton, '프로필 수정');
-    await tester.scrollUntilVisible(editButton, 50);
-    expect(editButton, findsOneWidget);
+    final saveButton = find.widgetWithText(FilledButton, '저장');
+    await tester.scrollUntilVisible(
+      saveButton,
+      50,
+      scrollable: find
+          .descendant(
+            of: find.byType(BottomSheet),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+    expect(find.text('프로필을 수정했어요.'), findsOneWidget);
   });
 }
  */
