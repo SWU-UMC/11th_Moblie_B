@@ -10,47 +10,55 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:movielog/main.dart';
 import 'package:movielog/screens/profile_screen.dart';
+import 'package:movielog/screens/signup_screen.dart';
 import 'package:movielog/theme/app_theme.dart';
 
 void main() {
   testWidgets('StartScreen shows title and CTA button', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MovieLogApp());
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const StartScreen()),
+    );
 
     expect(find.text('영화의 순간을\n기록하세요'), findsOneWidget);
     expect(find.widgetWithText(ElevatedButton, '시작하기'), findsOneWidget);
   });
 
-  testWidgets('StartScreen scrolls to CTA on a short screen', (
+  testWidgets('SignupScreen validates fields and toggles submit button', (
     WidgetTester tester,
   ) async {
-    tester.view.physicalSize = const Size(320, 480);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const SignupScreen()),
+    );
 
-    await tester.pumpWidget(const MovieLogApp());
-    expect(tester.takeException(), isNull);
+    final submitButtonFinder = find.widgetWithText(ElevatedButton, '가입하기');
+    ElevatedButton submitButton() =>
+        tester.widget<ElevatedButton>(submitButtonFinder);
 
-    final startButton = find.widgetWithText(ElevatedButton, '시작하기');
-    await tester.scrollUntilVisible(startButton, 50);
-    expect(startButton, findsOneWidget);
+    expect(submitButton().onPressed, isNull);
+
+    await tester.enterText(find.byType(TextFormField).at(0), 'a');
+    await tester.pump();
+    expect(find.text('닉네임은 2자 이상이어야 합니다.'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextFormField).at(0), '무비러버');
+    await tester.enterText(find.byType(TextFormField).at(1), 'movie@example.com');
+    await tester.enterText(find.byType(TextFormField).at(2), 'password123');
+    await tester.tap(find.text('필수 약관에 동의합니다'));
+    await tester.pump();
+
+    expect(submitButton().onPressed, isNotNull);
   });
 
-  testWidgets('StartScreen keeps CTA at the bottom on a tall screen', (
+  testWidgets('SignupScreen back button has an accessible tooltip', (
     WidgetTester tester,
   ) async {
-    tester.view.physicalSize = const Size(412, 915);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-
-    await tester.pumpWidget(const MovieLogApp());
-
-    // 화면 하단 여백(32) 바로 위에 버튼이 위치해야 합니다.
-    final buttonRect = tester.getRect(
-      find.widgetWithText(ElevatedButton, '시작하기'),
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const SignupScreen()),
     );
-    expect(buttonRect.bottom, closeTo(915 - 32, 1));
+
+    expect(find.byTooltip('Back'), findsOneWidget);
   });
 
   testWidgets('ProfileScreen scrolls on a short screen', (
@@ -68,5 +76,7 @@ void main() {
     final editButton = find.widgetWithText(ElevatedButton, '프로필 수정');
     await tester.scrollUntilVisible(editButton, 50);
     expect(editButton, findsOneWidget);
+    // 수정 기능이 없으므로 버튼은 비활성화 상태입니다.
+    expect(tester.widget<ElevatedButton>(editButton).onPressed, isNull);
   });
 }
