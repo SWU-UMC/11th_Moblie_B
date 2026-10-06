@@ -20,15 +20,16 @@ import 'package:movielog/widgets/movie_card.dart';
 
 /// 불러오기 결과를 테스트에서 직접 정하는 GenrePreferences입니다.
 class _FakeGenrePreferences extends GenrePreferences {
-  _FakeGenrePreferences(this._load);
+  _FakeGenrePreferences(this._load, {this.save});
 
   final Future<String?> Function() _load;
+  final Future<void> Function()? save;
 
   @override
   Future<String?> loadLastGenre() => _load();
 
   @override
-  Future<void> saveLastGenre(String genre) async {}
+  Future<void> saveLastGenre(String genre) => save?.call() ?? Future.value();
 }
 
 void main() {
@@ -430,5 +431,26 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('로그인'), findsOneWidget);
     expect(tester.getRect(find.text('시작하기')).bottom, lessThanOrEqualTo(480));
+  });
+
+  testWidgets('Genre save failure keeps selection', (tester) async {
+    await pumpMovies(
+      tester,
+      MovieLoadMode.success,
+      genrePreferences: _FakeGenrePreferences(
+        () async => null,
+        save: () => Future.error(Exception('write failed')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'SF'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final sfChip = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, 'SF'),
+    );
+    expect(sfChip.selected, isTrue);
   });
 }

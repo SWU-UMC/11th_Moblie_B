@@ -62,7 +62,10 @@ class _MoviesScreenState extends State<MoviesScreen> {
   void _selectGenre(String genre) {
     _userSelectedGenre = true;
     setState(() => _selectedGenre = genre);
-    _genrePreferences.saveLastGenre(genre);
+    // 저장은 기다리지 않고, 실패해도 선택한 장르는 그대로 보여줍니다.
+    _genrePreferences.saveLastGenre(genre).catchError((Object error) {
+      debugPrint('마지막 장르 저장 실패: $error');
+    });
   }
 
   void _retry() {
