@@ -1,17 +1,64 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 import 'package:movielog/main.dart';
 import 'package:movielog/router/app_router.dart';
+import 'package:movielog/screens/movies_screen.dart';
 import 'package:movielog/screens/signup_screen.dart';
 import 'package:movielog/screens/start_screen.dart';
+import 'package:movielog/services/fake_movie_service.dart';
+import 'package:movielog/services/genre_preferences.dart';
 import 'package:movielog/theme/app_theme.dart';
 import 'package:movielog/widgets/genre_filter_chips.dart';
 import 'package:movielog/widgets/movie_card.dart';
 
+/// 불러오기 결과를 테스트에서 직접 정하는 GenrePreferences입니다.
+class _FakeGenrePreferences extends GenrePreferences {
+  _FakeGenrePreferences(this._load, {this.save});
+
+  final Future<String?> Function() _load;
+  final Future<void> Function()? save;
+
+  @override
+  Future<String?> loadLastGenre() => _load();
+
+  @override
+  Future<void> saveLastGenre(String genre) => save?.call() ?? Future.value();
+}
+
 void main() {
+  // 테스트마다 비어 있는 메모리 저장소로 SharedPreferencesAsync를 대체합니다.
+  setUp(() {
+    SharedPreferencesAsyncPlatform.instance =
+        InMemorySharedPreferencesAsync.empty();
+  });
+
+  Future<void> pumpMovies(
+    WidgetTester tester,
+    MovieLoadMode mode, {
+    GenrePreferences? genrePreferences,
+  }) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: MoviesScreen(
+          movieService: FakeMovieService(mode: mode),
+          genrePreferences: genrePreferences,
+        ),
+      ),
+    );
+  }
+
   Future<GoRouter> pumpApp(
     WidgetTester tester, {
     String initialLocation = '/',
@@ -270,5 +317,140 @@ void main() {
     await tester.tap(saveButton);
     await tester.pumpAndSettle();
     expect(find.text('프로필을 수정했어요.'), findsOneWidget);
+  });
+
+  testWidgets('Movies shows loading then success', (tester) async {
+    await pumpMovies(tester, MovieLoadMode.success);
+    await tester.pump();
+    expect(find.text('영화 목록을 불러오고 있어요'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 800));
+    expect(find.text('영화 목록을 불러오고 있어요'), findsOneWidget);
+
+    await tester.pumpAndSettle();
+    expect(find.text('별빛 아래 우리'), findsOneWidget);
+  });
+
+  testWidgets('Movies shows empty view for empty list', (tester) async {
+    await pumpMovies(tester, MovieLoadMode.empty);
+    await tester.pumpAndSettle();
+
+    expect(find.text('아직 등록된 영화가 없어요.'), findsOneWidget);
+    expect(find.byType(MovieCard), findsNothing);
+  });
+
+  testWidgets('Movies error hides exception and retries', (tester) async {
+    await pumpMovies(tester, MovieLoadMode.errorOnce);
+    await tester.pumpAndSettle();
+
+    expect(find.text('영화 목록을 불러오지 못했어요'), findsOneWidget);
+    expect(find.textContaining('Exception'), findsNothing);
+
+    await tester.tap(find.text('다시 시도'));
+    await tester.pump();
+    expect(find.text('영화 목록을 불러오고 있어요'), findsOneWidget);
+
+    await tester.pumpAndSettle();
+    expect(find.text('별빛 아래 우리'), findsOneWidget);
+  });
+
+  testWidgets('Selected genre is saved and restored', (tester) async {
+    await pumpMovies(tester, MovieLoadMode.success);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'SF'));
+    await tester.pumpAndSettle();
+    expect(await GenrePreferences().loadLastGenre(), 'SF');
+
+    // 앱 재실행처럼 화면을 완전히 새로 만듭니다.
+    await tester.pumpWidget(const SizedBox());
+    await pumpMovies(tester, MovieLoadMode.success);
+    await tester.pumpAndSettle();
+
+    final sfChip = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, 'SF'),
+    );
+    expect(sfChip.selected, isTrue);
+    expect(find.text('우주의 끝에서'), findsOneWidget);
+    expect(find.text('별빛 아래 우리'), findsNothing);
+  });
+
+  testWidgets('Late genre restore keeps user selection', (tester) async {
+    final saved = Completer<String?>();
+    await pumpMovies(
+      tester,
+      MovieLoadMode.success,
+      genrePreferences: _FakeGenrePreferences(() => saved.future),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'SF'));
+    await tester.pumpAndSettle();
+
+    // 사용자가 고른 뒤에 저장된 장르가 늦게 도착합니다.
+    saved.complete('애니메이션');
+    await tester.pumpAndSettle();
+
+    final sfChip = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, 'SF'),
+    );
+    expect(sfChip.selected, isTrue);
+  });
+
+  testWidgets('Genre restore failure keeps default genre', (tester) async {
+    await pumpMovies(
+      tester,
+      MovieLoadMode.success,
+      genrePreferences: _FakeGenrePreferences(
+        () => Future.error(Exception('read failed')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final allChip = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, '전체'),
+    );
+    expect(allChip.selected, isTrue);
+    expect(find.text('별빛 아래 우리'), findsOneWidget);
+  });
+
+  testWidgets('Start buttons are reachable on short screen', (tester) async {
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const StartScreen()),
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('시작하기'),
+      100,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.text('로그인'), findsOneWidget);
+    expect(tester.getRect(find.text('시작하기')).bottom, lessThanOrEqualTo(480));
+  });
+
+  testWidgets('Genre save failure keeps selection', (tester) async {
+    await pumpMovies(
+      tester,
+      MovieLoadMode.success,
+      genrePreferences: _FakeGenrePreferences(
+        () async => null,
+        save: () => Future.error(Exception('write failed')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'SF'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final sfChip = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, 'SF'),
+    );
+    expect(sfChip.selected, isTrue);
   });
 }
