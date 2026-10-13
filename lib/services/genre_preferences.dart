@@ -6,12 +6,14 @@ class GenrePreferences {
   GenrePreferences({SharedPreferencesAsync? prefs})
     : _prefs = prefs ?? SharedPreferencesAsync();
 
-  static const lastGenreKey = 'last_selected_genre';
+  /// TMDB 장르 ID를 저장합니다. 값이 없으면 "전체"입니다.
+  static const lastGenreIdKey = 'last_selected_genre_id';
 
   final SharedPreferencesAsync _prefs;
 
-  Future<String?> loadLastGenre() => _prefs.getString(lastGenreKey);
+  Future<int?> loadLastGenreId() => _prefs.getInt(lastGenreIdKey);
 
-  Future<void> saveLastGenre(String genre) =>
-      _prefs.setString(lastGenreKey, genre);
+  Future<void> saveLastGenreId(int? genreId) => genreId == null
+      ? _prefs.remove(lastGenreIdKey)
+      : _prefs.setInt(lastGenreIdKey, genreId);
 }
