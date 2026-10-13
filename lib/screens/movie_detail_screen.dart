@@ -4,14 +4,20 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/mock_movies.dart';
+import '../data/models/tmdb_movie_dto.dart';
 import '../models/movie.dart';
 import '../widgets/movie_rating_dialog.dart';
 import '../widgets/movielog_app_bar.dart';
+import '../widgets/tmdb_poster_image.dart';
 
 class MovieDetailScreen extends StatefulWidget {
-  const MovieDetailScreen({super.key, required this.movieId});
+  const MovieDetailScreen({super.key, required this.movieId, this.tmdbMovie});
 
+  /// 경로의 영화 ID입니다. TMDB 영화는 TMDB id, 추천 카드는 mock id입니다.
   final String movieId;
+
+  /// 목록에서 함께 넘긴 TMDB 영화입니다. 없으면 mock 영화에서 찾습니다.
+  final TmdbMovieDto? tmdbMovie;
 
   @override
   State<MovieDetailScreen> createState() => _MovieDetailScreenState();
@@ -33,7 +39,13 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final movie = findMovieById(widget.movieId);
+    final tmdbMovie = widget.tmdbMovie;
+    final mockMovie = findMovieById(widget.movieId);
+    final movie = tmdbMovie != null
+        ? _DetailData.fromTmdb(tmdbMovie)
+        : mockMovie == null
+        ? null
+        : _DetailData.fromMock(mockMovie);
 
     return Scaffold(
       appBar: MovieLogAppBar(
@@ -78,9 +90,10 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     _showSnackBar(_isFavorite ? '즐겨찾기에 추가했어요.' : '즐겨찾기에서 삭제했어요.');
   }
 
-  Future<void> _openRatingDialog(Movie movie) async {
+  Future<void> _openRatingDialog(_DetailData movie) async {
     final rating = await showMovieRatingDialog(
       context,
+      movieId: widget.movieId,
       movieTitle: movie.title,
       initialRating: _myRating ?? 0,
     );
@@ -102,10 +115,65 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   }
 }
 
+/// 상세 화면이 그리는 값입니다. mock 영화와 TMDB 영화를 같은 모양으로 맞춥니다.
+class _DetailData {
+  const _DetailData({
+    required this.title,
+    required this.poster,
+    required this.meta,
+    required this.rating,
+    required this.ratingLabel,
+    required this.reviewCount,
+    required this.tags,
+    required this.synopsis,
+  });
+
+  factory _DetailData.fromMock(Movie movie) => _DetailData(
+    title: movie.title,
+    poster: Image.asset(movie.posterPath, fit: BoxFit.cover),
+    meta:
+        '${movie.year} • ${movie.genres.join('/')} • '
+        '${movie.runtimeMinutes}분',
+    rating: movie.rating,
+    ratingLabel: movie.rating.toStringAsFixed(1),
+    reviewCount: movie.reviewCount,
+    tags: movie.tags,
+    synopsis: movie.synopsis,
+  );
+
+  factory _DetailData.fromTmdb(TmdbMovieDto movie) => _DetailData(
+    title: movie.title,
+    poster: TmdbPosterImage(
+      posterPath: movie.posterPath,
+      width: double.infinity,
+      height: double.infinity,
+    ),
+    // release_date가 없으면 연도를 표시하지 않습니다.
+    meta: movie.releaseYear?.toString() ?? '',
+    // TMDB 평점은 10점 만점이므로 별 5개에 맞춰 절반으로 표시합니다.
+    rating: movie.voteAverage / 2,
+    ratingLabel: '${movie.voteAverage.toStringAsFixed(1)} / 10',
+    reviewCount: null,
+    tags: const [],
+    synopsis: movie.overview,
+  );
+
+  final String title;
+  final Widget poster;
+  final String meta;
+
+  /// 별 5개 기준 평점입니다.
+  final double rating;
+  final String ratingLabel;
+  final int? reviewCount;
+  final List<String> tags;
+  final String synopsis;
+}
+
 class _MovieDetailBody extends StatelessWidget {
   const _MovieDetailBody({required this.movie, required this.myRating});
 
-  final Movie movie;
+  final _DetailData movie;
   final double? myRating;
 
   @override
@@ -117,24 +185,22 @@ class _MovieDetailBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AspectRatio(
-            aspectRatio: 2 / 3,
-            child: Image.asset(movie.posterPath, fit: BoxFit.cover),
-          ),
+          AspectRatio(aspectRatio: 2 / 3, child: movie.poster),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(movie.title, style: textTheme.headlineSmall),
-                const SizedBox(height: 6),
-                Text(
-                  '${movie.year} • ${movie.genres.join('/')} • '
-                  '${movie.runtimeMinutes}분',
-                  style: textTheme.bodyMedium?.copyWith(
-                    color: colors.onSurfaceVariant,
+                if (movie.meta.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    movie.meta,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -146,17 +212,16 @@ class _MovieDetailBody extends StatelessWidget {
                           Icon(Icons.star_rounded, color: colors.primary),
                     ),
                     const SizedBox(width: 12),
-                    Text(
-                      movie.rating.toStringAsFixed(1),
-                      style: textTheme.titleMedium,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '(${_formatCount(movie.reviewCount)})',
-                      style: textTheme.bodyMedium?.copyWith(
-                        color: colors.onSurfaceVariant,
+                    Text(movie.ratingLabel, style: textTheme.titleMedium),
+                    if (movie.reviewCount case final count?) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        '(${_formatCount(count)})',
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
                 if (myRating != null) ...[
@@ -204,13 +269,27 @@ class _MovieDetailBody extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  movie.synopsis,
-                  style: textTheme.bodyLarge?.copyWith(
-                    height: 1.7,
-                    color: colors.onSurfaceVariant,
+                if (movie.synopsis.isEmpty)
+                  // overview가 비어 있으면 안내 문구를 가운데에 보여줍니다.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text(
+                        '줄거리 정보가 없어요.',
+                        style: textTheme.bodyLarge?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Text(
+                    movie.synopsis,
+                    style: textTheme.bodyLarge?.copyWith(
+                      height: 1.7,
+                      color: colors.onSurfaceVariant,
+                    ),
                   ),
-                ),
               ],
             ),
           ),

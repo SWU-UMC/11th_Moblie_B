@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import '../data/mock_movies.dart';
+import '../data/models/tmdb_movie_dto.dart';
 import '../theme/app_colors.dart';
+import '../view_models/movie_home_view_model.dart';
 import '../widgets/featured_movie_card.dart';
-import '../widgets/movie_card.dart';
 import '../widgets/movielog_app_bar.dart';
+import '../widgets/popular_movie_card.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -82,27 +85,94 @@ class HomeScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
+              // 인기 영화 영역만 ViewModel 상태에 맞춰 다시 그립니다.
               SizedBox(
                 height: 260,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: mockMovies.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final movie = mockMovies[index];
-                    return SizedBox(
-                      width: 140,
-                      child: MovieCard(
-                        movie: movie,
-                        onTap: () => context.push('/movies/${movie.id}'),
+                child: Consumer<MovieHomeViewModel>(
+                  builder: (context, viewModel, child) {
+                    return switch (viewModel.status) {
+                      MovieHomeLoadStatus.idle || MovieHomeLoadStatus.loading =>
+                        const Center(child: CircularProgressIndicator()),
+                      MovieHomeLoadStatus.error => _PopularMessage(
+                        message: viewModel.message ?? '인기 영화를 불러오지 못했어요.',
+                        onRetry: () =>
+                            context.read<MovieHomeViewModel>().loadPopular(),
                       ),
-                    );
+                      MovieHomeLoadStatus.empty => const _PopularMessage(
+                        message: '지금은 인기 영화가 없어요.',
+                      ),
+                      MovieHomeLoadStatus.success => _PopularList(
+                        movies: viewModel.popularMovies,
+                      ),
+                    };
                   },
                 ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PopularList extends StatelessWidget {
+  const _PopularList({required this.movies});
+
+  final List<TmdbMovieDto> movies;
+
+  @override
+  Widget build(BuildContext context) {
+    // ViewModel이 이미 최대 5개로 줄였으므로 길이만큼만 그립니다.
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      itemCount: movies.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 12),
+      itemBuilder: (context, index) {
+        final movie = movies[index];
+        return SizedBox(
+          width: 140,
+          child: PopularMovieCard(
+            rank: index + 1,
+            movie: movie,
+            // TMDB id를 그대로 넘겨 이후 평점 movieId로 사용합니다.
+            onTap: () => context.push('/movies/${movie.id}', extra: movie),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PopularMessage extends StatelessWidget {
+  const _PopularMessage({required this.message, this.onRetry});
+
+  final String message;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyLarge
+                ?.copyWith(color: colors.onSurfaceVariant),
+          ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('다시 시도'),
+            ),
+          ],
+        ],
       ),
     );
   }
