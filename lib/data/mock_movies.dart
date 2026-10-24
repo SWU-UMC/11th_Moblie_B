@@ -82,15 +82,6 @@ const mockMovies = <Movie>[
   ),
 ];
 
-/// 영화 목록의 장르 Chip 순서입니다. '전체'는 필터를 적용하지 않습니다.
-const allGenresLabel = '전체';
-const movieGenres = [allGenresLabel, '드라마', 'SF', '애니메이션', '스릴러', '로맨스', '코미디'];
-
-List<Movie> filterByGenre(List<Movie> movies, String genre) {
-  if (genre == allGenresLabel) return movies;
-  return movies.where((movie) => movie.genres.contains(genre)).toList();
-}
-
 Movie? findMovieById(String id) {
   for (final movie in mockMovies) {
     if (movie.id == id) return movie;
