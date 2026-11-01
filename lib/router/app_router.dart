@@ -5,12 +5,18 @@ import '../account_screens.dart';
 import '../movie.dart';
 import '../movie_screens.dart';
 
+import 'package:provider/provider.dart';
+
+import '../data/services/tmdb_movie_service.dart';
+import '../view_models/movie_home_view_model.dart';
+import '../view_models/movie_list_view_model.dart';
+
 class AppRouter {
   AppRouter._();
 
   static final router = GoRouter(
     // Guided Practice에서는 '/home', 전체 흐름 확인은 '/start'.
-    initialLocation: '/start',
+    initialLocation: '/home',
     routes: [
       GoRoute(path: '/start', builder: (context, state) => const StartScreen()),
       GoRoute(
@@ -27,11 +33,22 @@ class AppRouter {
           GoRoute(
             path: '/home',
             builder: (context, state) =>
-                const PopScope(canPop: false, child: HomeScreen()),
+                ChangeNotifierProvider<MovieHomeViewModel>(
+                  create: (context) =>
+                      MovieHomeViewModel(context.read<TmdbMovieService>())
+                        ..loadPopular(),
+                  child: const PopScope(canPop: false, child: HomeScreen()),
+                ),
           ),
           GoRoute(
             path: '/movies',
-            builder: (context, state) => const MovieListScreen(),
+            builder: (context, state) =>
+                ChangeNotifierProvider<MovieListViewModel>(
+                  create: (context) =>
+                      MovieListViewModel(context.read<TmdbMovieService>())
+                        ..loadInitial(),
+                  child: const MovieListScreen(),
+                ),
           ),
           GoRoute(
             path: '/my',
@@ -44,7 +61,8 @@ class AppRouter {
         path: '/movies/:movieId',
         builder: (context, state) {
           final id = int.tryParse(state.pathParameters['movieId'] ?? '');
-          final movie = findMovieById(id);
+          final extra = state.extra;
+          final movie = extra is Movie && extra.id == id ? extra : null;
           if (movie == null) return const MovieNotFoundScreen();
           return MovieDetailScreen(key: ValueKey(movie.id), movie: movie);
         },

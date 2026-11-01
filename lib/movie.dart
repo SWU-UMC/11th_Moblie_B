@@ -1,3 +1,6 @@
+import 'data/models/tmdb_movie_dto.dart';
+import 'data/models/tmdb_genre_dto.dart';
+
 // 홈, 영화 목록, 상세에서 같은 데이터를 사용합니다.
 class Movie {
   const Movie({
@@ -9,8 +12,34 @@ class Movie {
     required this.minutes,
     required this.averageRating,
     required this.synopsis,
+    this.posterPath,
+    this.isTmdb = false,
   });
 
+  // 기존 상세·평점 UI에서도 TMDB id를 그대로 보존합니다.
+  factory Movie.fromTmdb(
+    TmdbMovieDto dto, {
+    List<TmdbGenreDto> genres = const [],
+  }) {
+    final names = genres
+        .where((g) => dto.genreIds.contains(g.id))
+        .map((g) => g.name)
+        .join(' · ');
+    return Movie(
+      id: dto.id,
+      title: dto.title,
+      genre: names.isEmpty ? '영화' : names,
+      year: DateTime.tryParse(dto.releaseDate ?? '')?.year ?? 0,
+      posterAsset: '',
+      posterPath: dto.posterPath,
+      isTmdb: true,
+      minutes: 0,
+      averageRating: dto.voteAverage / 2,
+      synopsis: dto.overview.isEmpty ? '줄거리 정보가 없어요.' : dto.overview,
+    );
+  }
+  final String? posterPath;
+  final bool isTmdb;
   final int id;
   final String title;
   final String genre;
