@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
 
-import '../models/movie.dart';
+import '../data/models/tmdb_movie_dto.dart';
+import 'tmdb_poster_image.dart';
 
 /// 홈과 영화 목록에서 함께 쓰는 포스터 카드입니다.
 class MovieCard extends StatefulWidget {
-  const MovieCard({super.key, required this.movie, required this.onTap});
+  const MovieCard({
+    super.key,
+    required this.movie,
+    required this.onTap,
+    this.genreName,
+  });
 
-  final Movie movie;
+  final TmdbMovieDto movie;
+
+  /// 첫 번째 장르 이름입니다. 모르면 표시하지 않습니다.
+  final String? genreName;
   final VoidCallback onTap;
 
   @override
@@ -21,6 +30,11 @@ class _MovieCardState extends State<MovieCard> {
     final movie = widget.movie;
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    // release_date나 장르가 없으면 해당 값은 빼고 표시합니다.
+    final subtitle = [
+      ?movie.releaseYear?.toString(),
+      ?widget.genreName,
+    ].join(' · ');
 
     // 탭은 GestureDetector로 처리하고, 키보드 사용자도 Tab으로 포커스를 옮겨
     // Enter/Space로 카드를 열 수 있도록 FocusableActionDetector를 함께 둡니다.
@@ -58,11 +72,15 @@ class _MovieCardState extends State<MovieCard> {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        Image.asset(movie.posterPath, fit: BoxFit.cover),
+                        TmdbPosterImage(
+                          posterPath: movie.posterPath,
+                          width: double.infinity,
+                          height: double.infinity,
+                        ),
                         Positioned(
                           top: 8,
                           right: 8,
-                          child: _RatingBadge(rating: movie.rating),
+                          child: _RatingBadge(rating: movie.voteAverage),
                         ),
                       ],
                     ),
@@ -78,13 +96,17 @@ class _MovieCardState extends State<MovieCard> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 2),
-              Text(
-                '${movie.year} · ${movie.genres.first}',
-                style: textTheme.bodyMedium?.copyWith(
-                  color: colors.onSurfaceVariant,
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),

@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 /// 영화 목록을 불러오지 못했을 때 보여주는 Error 상태입니다.
 /// 내부 Exception 대신 사용자가 할 수 있는 행동(다시 시도)을 안내합니다.
 class MovieErrorView extends StatelessWidget {
-  const MovieErrorView({super.key, required this.onRetry});
+  const MovieErrorView({super.key, required this.onRetry, this.message});
 
   final VoidCallback onRetry;
+
+  /// 화면에 보여줄 안내 문구입니다. 없으면 기본 문구를 씁니다.
+  final String? message;
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +24,7 @@ class MovieErrorView extends StatelessWidget {
             Icon(Icons.cloud_off_outlined, size: 56, color: colors.error),
             const SizedBox(height: 16),
             Text(
-              '영화 목록을 불러오지 못했어요',
+              message ?? '영화 목록을 불러오지 못했어요',
               textAlign: TextAlign.center,
               style: textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
