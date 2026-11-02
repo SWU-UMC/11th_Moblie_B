@@ -1,0 +1,13 @@
+language: "ko-KR" # 리뷰 언어를 한국어로 설정
+
+reviews:
+  profile: "chill" # 리뷰 톤 (assertive, chill, strict 등)
+  auto_review:
+    enabled: true
+    drafts: false # Draft PR은 리뷰하지 않음
+  path_instructions:
+    - path: "**/*.dart"
+      instructions: "Flutter 및 Dart 클린 코드 작성 컨벤션을 준수했는지 확인해주세요."
+
+chat:
+  auto_reply: true
