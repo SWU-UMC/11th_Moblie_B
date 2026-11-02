@@ -90,6 +90,8 @@ class _SignupScreenState extends State<SignupScreen> {
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final viewModel = context.watch<SignUpViewModel>();
+    // 글자 크기 설정에 따라 달라지는 중복 확인 버튼 너비입니다.
+    final checkButtonWidth = MovieLogButton.contentWidth(context, '중복 확인');
     final nicknameStatus = viewModel.nicknameCheckStatus;
     final emailStatus = viewModel.emailCheckStatus;
 
@@ -140,6 +142,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         ? AppColors.success
                         : AppColors.info,
                     // 입력창 옆 보조 버튼이므로 width를 주지 않아 내용 기반 크기를 씁니다.
+                    trailingWidth: checkButtonWidth,
                     trailing: MovieLogButton(
                       label: '중복 확인',
                       isLoading: nicknameStatus == CheckStatus.checking,
@@ -178,6 +181,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     statusColor: emailStatus == CheckStatus.available
                         ? AppColors.success
                         : AppColors.info,
+                    trailingWidth: checkButtonWidth,
                     trailing: MovieLogButton(
                       label: '중복 확인',
                       isLoading: emailStatus == CheckStatus.checking,
@@ -243,6 +247,7 @@ class _AuthTextField extends StatelessWidget {
     this.statusText,
     this.statusColor,
     this.trailing,
+    this.trailingWidth,
   });
 
   final String label;
@@ -269,6 +274,9 @@ class _AuthTextField extends StatelessWidget {
 
   /// 입력창 바깥 오른쪽에 둘 위젯입니다. (중복 확인 버튼)
   final Widget? trailing;
+
+  /// [trailing]이 차지할 너비입니다. 옆에 둘 자리가 있는지 판단할 때 씁니다.
+  final double? trailingWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -372,18 +380,37 @@ class _AuthTextField extends StatelessWidget {
     );
   }
 
+  /// 입력창이 이 너비보다 좁아지면 버튼을 입력창 아래로 내립니다.
+  static const _minFieldWidth = 160.0;
+
   /// 입력창과 버튼을 Row의 별도 형제로 두고 8px 간격을 줍니다.
   /// 위쪽을 맞춰 두어, 입력창 아래에 문구가 생겨도 버튼 위치는 그대로입니다.
+  /// 화면이 좁거나 글자가 커서 입력창이 너무 좁아지면 버튼을 아래로 내립니다.
   Widget _withTrailing(Widget field) {
     final trailing = this.trailing;
     if (trailing == null) return field;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: field),
-        const SizedBox(width: 8),
-        trailing,
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final fieldWidth = constraints.maxWidth - 8 - (trailingWidth ?? 0);
+        if (fieldWidth >= _minFieldWidth) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: field),
+              const SizedBox(width: 8),
+              trailing,
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            field,
+            const SizedBox(height: 8),
+            Align(alignment: Alignment.centerRight, child: trailing),
+          ],
+        );
+      },
     );
   }
 }
@@ -408,7 +435,8 @@ class _TermsCheckbox extends StatelessWidget {
             activeColor: colors.primary,
             onChanged: (checked) => onChanged(checked ?? false),
           ),
-          const Text('필수 약관에 동의합니다'),
+          // 글자가 커져도 넘치지 않고 줄바꿈되도록 남은 너비 안에 둡니다.
+          const Flexible(child: Text('필수 약관에 동의합니다')),
         ],
       ),
     );

@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +10,8 @@ import 'package:provider/provider.dart';
 
 import 'package:movielog/data/models/check_result.dart';
 import 'package:movielog/data/models/rating_dto.dart';
+import 'package:movielog/data/services/member_check_service.dart';
+import 'package:movielog/data/services/rating_api_service.dart';
 import 'package:movielog/main.dart';
 import 'package:movielog/router/app_router.dart';
 import 'package:movielog/screens/my_ratings_screen.dart';
@@ -258,6 +264,33 @@ void main() {
       expect(buttonBox.left - fieldBox.right, 8);
       expect(buttonBox.top, fieldBox.top);
     });
+
+    testWidgets('check button moves below the field when the row is narrow', (
+      tester,
+    ) async {
+      service = FakeMemberCheckService();
+      tester.view.physicalSize = const Size(960, 2400);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: ChangeNotifierProvider(
+            create: (_) => SignUpViewModel(service),
+            child: const SignupScreen(),
+          ),
+        ),
+      );
+
+      final fieldBox = tester.getRect(field(0));
+      final buttonBox = tester.getRect(checkButton(0));
+      // 입력창은 전체 너비를 쓰고, 버튼은 그 아래에 놓입니다.
+      expect(buttonBox.top, greaterThan(fieldBox.bottom));
+      expect(fieldBox.width, greaterThan(200));
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('My ratings', () {
@@ -340,7 +373,12 @@ void main() {
       expect(find.text('영화 #13'), findsOneWidget);
       expect(find.text('포스터 정보 없음'), findsOneWidget);
       expect(find.text('별점 3 / 5'), findsOneWidget);
-      expect(find.text('2026.11.01 등록', skipOffstage: false), findsWidgets);
+      // 화면은 기기 시간대로 날짜를 보여주므로, 기대값도 같은 시각을 toLocal()로 계산합니다.
+      final local = fakeRating(1, 550, 5).createdAt.toLocal();
+      String two(int value) => value.toString().padLeft(2, '0');
+      final expectedDate =
+          '${local.year}.${two(local.month)}.${two(local.day)} 등록';
+      expect(find.text(expectedDate, skipOffstage: false), findsWidgets);
       expect(find.text('일부 영화 정보를 가져오지 못해 제목·포스터를 대신 표시합니다.'), findsOneWidget);
       // 같은 movieId(550)는 한 번만 조회합니다.
       expect(movieService.lookups.where((id) => id == 550), hasLength(1));
@@ -351,6 +389,7 @@ void main() {
       await pumpRatings(tester);
       await tester.pumpAndSettle();
       expect(find.text('아직 등록한 평점이 없어요.'), findsOneWidget);
+      expect(find.text('학습용 샘플 회원(memberId 1)의 평점입니다.'), findsOneWidget);
     });
 
     testWidgets('404 shows member message and retry recovers', (tester) async {
@@ -365,6 +404,7 @@ void main() {
       await pumpRatings(tester);
       await tester.pumpAndSettle();
       expect(find.text('존재하지 않는 회원입니다.'), findsOneWidget);
+      expect(find.text('학습용 샘플 회원(memberId 1)의 평점입니다.'), findsOneWidget);
 
       await tester.tap(find.text('다시 시도'));
       await tester.pumpAndSettle();
@@ -383,15 +423,12 @@ void main() {
       expect(find.text('영화 #550'), findsOneWidget);
       expect(find.text('별점 5 / 5'), findsOneWidget);
 
-      // 일시적인 실패는 캐시하지 않으므로 다시 불러오면 영화를 찾습니다.
+      // 일시적인 실패는 캐시하지 않으므로, 화면의 "다시 불러오기"로 영화를 다시 찾습니다.
       movieService.failingIds = {};
-      final viewModel = Provider.of<MyRatingsViewModel>(
-        tester.element(find.byType(MyRatingsScreen)),
-        listen: false,
-      );
-      await viewModel.load();
+      await tester.tap(find.text('다시 불러오기'));
       await tester.pumpAndSettle();
       expect(find.text('파이트 클럽'), findsOneWidget);
+      expect(find.text('다시 불러오기'), findsNothing);
     });
 
     testWidgets('malformed response shows error view', (tester) async {
@@ -399,6 +436,39 @@ void main() {
       await pumpRatings(tester);
       await tester.pumpAndSettle();
       expect(find.text('다시 시도'), findsOneWidget);
+    });
+  });
+
+  group('Real v5 services', () {
+    late _RecordingAdapter adapter;
+
+    Dio dio() =>
+        Dio(BaseOptions(baseUrl: 'https://workbook.devnoco.com'))
+          ..httpClientAdapter = adapter;
+
+    test('checkNickname and checkEmail request their own paths', () async {
+      adapter = _RecordingAdapter('{"available": false}');
+      final service = MemberCheckService(dio());
+
+      expect(await service.checkNickname(' 영화광 '), isFalse);
+      expect(await service.checkEmail('movie@umc.com'), isFalse);
+
+      // 앞뒤 공백은 지우고, 경로에 들어가는 값은 인코딩합니다.
+      expect(adapter.paths, [
+        '/v5/members/nickname/${Uri.encodeComponent('영화광')}',
+        '/v5/members/email/movie%40umc.com',
+      ]);
+    });
+
+    test('fetchMyRatings requests the member ratings path', () async {
+      adapter = _RecordingAdapter(
+        '[{"ratingId":1,"movieId":550,"score":5,"comment":null,'
+        '"createdAt":"2026-11-01T19:00:27.956Z"}]',
+      );
+      final ratings = await RatingApiService(dio()).fetchMyRatings(1);
+
+      expect(adapter.paths, ['/v5/members/1/ratings']);
+      expect(ratings.single.movieId, 550);
     });
   });
 
@@ -419,4 +489,31 @@ void main() {
 
     expect(CheckResult.fromJson({'available': false}).available, isFalse);
   });
+}
+
+/// 실제 네트워크 대신 요청 경로를 기록하고 정해진 JSON을 돌려주는 Dio Adapter입니다.
+class _RecordingAdapter implements HttpClientAdapter {
+  _RecordingAdapter(this.body);
+
+  final String body;
+  final paths = <String>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    paths.add(options.uri.path);
+    return ResponseBody.fromBytes(
+      utf8.encode(body),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
@@ -28,6 +30,30 @@ class MovieLogButton extends StatelessWidget {
 
   bool get _disabled => isLoading || onPressed == null;
 
+  static const _horizontalPadding = 20.0;
+
+  /// ElevatedButton의 기본 최소 너비입니다.
+  static const _minWidth = 64.0;
+
+  /// 테마의 labelLarge(앱 폰트·크기)를 그대로 쓰고 굵기만 바꿉니다.
+  static TextStyle? _labelStyle(BuildContext context) =>
+      Theme.of(context).textTheme.labelLarge
+          ?.copyWith(fontWeight: FontWeight.bold);
+
+  /// width가 null일 때 [label] 버튼이 차지할 너비입니다. 글자 크기 설정을 반영합니다.
+  /// 버튼을 옆에 둘지 아래로 내릴지 정할 때 씁니다.
+  static double contentWidth(BuildContext context, String label) {
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: _labelStyle(context)),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final width = painter.width + _horizontalPadding * 2;
+    painter.dispose();
+    return math.max(width, _minWidth);
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -43,8 +69,8 @@ class MovieLogButton extends StatelessWidget {
               ? AppColors.gray
               : AppColors.primary.withValues(alpha: 0.4),
           disabledForegroundColor: AppColors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          textStyle: const TextStyle(fontWeight: FontWeight.bold),
+          padding: const EdgeInsets.symmetric(horizontal: _horizontalPadding),
+          textStyle: _labelStyle(context),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),

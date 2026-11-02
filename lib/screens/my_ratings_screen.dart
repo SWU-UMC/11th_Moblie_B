@@ -38,40 +38,59 @@ class MyRatingsScreen extends StatelessWidget {
       ),
       body: SafeArea(
         child: Consumer<MyRatingsViewModel>(
-          builder: (context, viewModel, _) => switch (viewModel.status) {
-            MyRatingsLoadStatus.idle || MyRatingsLoadStatus.loading =>
-              const MovieLoadingView(message: '평점을 불러오고 있어요'),
-            MyRatingsLoadStatus.empty => MovieEmptyView(
-              message: '아직 등록한 평점이 없어요.',
-              actionLabel: '새로고침',
-              onAction: viewModel.load,
-            ),
-            MyRatingsLoadStatus.error => MovieErrorView(
-              message: viewModel.message,
-              onRetry: viewModel.load,
-            ),
-            MyRatingsLoadStatus.success => _RatingList(
-              ratings: viewModel.ratings,
-              notice: viewModel.message,
-              memberId: viewModel.memberId,
-            ),
-          },
+          builder: (context, viewModel, _) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 로그인한 사용자의 평점이라고 오해하지 않도록, 상태와 관계없이 조회 대상을 밝힙니다.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                child: Text(
+                  '학습용 샘플 회원(memberId ${viewModel.memberId})의 평점입니다.',
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: colors.onSurfaceVariant),
+                ),
+              ),
+              Expanded(child: _buildStatus(viewModel)),
+            ],
+          ),
         ),
       ),
     );
   }
+
+  Widget _buildStatus(MyRatingsViewModel viewModel) =>
+      switch (viewModel.status) {
+        MyRatingsLoadStatus.idle || MyRatingsLoadStatus.loading =>
+          const MovieLoadingView(message: '평점을 불러오고 있어요'),
+        MyRatingsLoadStatus.empty => MovieEmptyView(
+          message: '아직 등록한 평점이 없어요.',
+          actionLabel: '새로고침',
+          onAction: viewModel.load,
+        ),
+        MyRatingsLoadStatus.error => MovieErrorView(
+          message: viewModel.message,
+          onRetry: viewModel.load,
+        ),
+        MyRatingsLoadStatus.success => _RatingList(
+          ratings: viewModel.ratings,
+          notice: viewModel.message,
+          onReload: viewModel.load,
+        ),
+      };
 }
 
 class _RatingList extends StatelessWidget {
   const _RatingList({
     required this.ratings,
     required this.notice,
-    required this.memberId,
+    required this.onReload,
   });
 
   final List<RatingWithMovie> ratings;
+
+  /// 영화 정보를 일부 가져오지 못했을 때의 안내입니다. 없으면 null입니다.
   final String? notice;
-  final int memberId;
+  final VoidCallback onReload;
 
   @override
   Widget build(BuildContext context) {
@@ -81,28 +100,24 @@ class _RatingList extends StatelessWidget {
       color: colors.onSurfaceVariant,
     );
 
+    final notice = this.notice;
+    final hasNotice = notice != null;
+
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-      itemCount: ratings.length + 1,
+      itemCount: ratings.length + (hasNotice ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox(height: 16),
       itemBuilder: (context, index) {
-        if (index == 0) {
-          // 로그인한 사용자의 평점이라고 오해하지 않도록 조회 대상을 밝힙니다.
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        if (hasNotice && index == 0) {
+          // 영화 조회가 일부 실패했다면 화면을 다시 열지 않고 바로 재시도할 수 있게 합니다.
+          return Row(
             children: [
-              Text(
-                '학습용 샘플 회원(memberId $memberId)의 평점입니다.',
-                style: captionStyle,
-              ),
-              if (notice != null) ...[
-                const SizedBox(height: 4),
-                Text(notice!, style: captionStyle),
-              ],
+              Expanded(child: Text(notice, style: captionStyle)),
+              TextButton(onPressed: onReload, child: const Text('다시 불러오기')),
             ],
           );
         }
-        return _RatingCard(entry: ratings[index - 1]);
+        return _RatingCard(entry: ratings[index - (hasNotice ? 1 : 0)]);
       },
     );
   }
