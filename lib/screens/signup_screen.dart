@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
+import '../theme/app_colors.dart';
+import '../view_models/signup_view_model.dart';
 import '../widgets/movielog_app_bar.dart';
+import '../widgets/movielog_button.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -57,13 +61,17 @@ class _SignupScreenState extends State<SignupScreen> {
     return null;
   }
 
-  bool get _canSubmit =>
+  /// 형식 검사를 통과하고, 닉네임·이메일 모두 "사용 가능"을 확인해야 가입할 수 있습니다.
+  bool _canSubmit(SignUpViewModel viewModel) =>
       _validateNickname(_nicknameController.text) == null &&
       _validateEmail(_emailController.text) == null &&
       _validatePassword(_passwordController.text) == null &&
+      viewModel.nicknameCheckStatus == CheckStatus.available &&
+      viewModel.emailCheckStatus == CheckStatus.available &&
       _agreedToTerms;
 
   void _handleSubmit() {
+    if (!_canSubmit(context.read<SignUpViewModel>())) return;
     setState(() {
       _nicknameTouched = true;
       _emailTouched = true;
@@ -81,6 +89,9 @@ class _SignupScreenState extends State<SignupScreen> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final viewModel = context.watch<SignUpViewModel>();
+    final nicknameStatus = viewModel.nicknameCheckStatus;
+    final emailStatus = viewModel.emailCheckStatus;
 
     return PopScope(
       canPop: false,
@@ -113,8 +124,34 @@ class _SignupScreenState extends State<SignupScreen> {
                     validator: _validateNickname,
                     touched: _nicknameTouched,
                     textInputAction: TextInputAction.next,
-                    onChanged: (_) => setState(() => _nicknameTouched = true),
+                    onChanged: (value) {
+                      setState(() => _nicknameTouched = true);
+                      viewModel.onNicknameChanged(value);
+                    },
                     onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                    serverErrorText: viewModel.nicknameErrorText,
+                    confirmed: nicknameStatus == CheckStatus.available,
+                    statusText: switch (nicknameStatus) {
+                      CheckStatus.checking => '닉네임 사용 여부를 확인 중입니다.',
+                      CheckStatus.available => '사용 가능한 닉네임입니다.',
+                      _ => null,
+                    },
+                    statusColor: nicknameStatus == CheckStatus.available
+                        ? AppColors.success
+                        : AppColors.info,
+                    // 입력창 옆 보조 버튼이므로 width를 주지 않아 내용 기반 크기를 씁니다.
+                    trailing: MovieLogButton(
+                      label: '중복 확인',
+                      isLoading: nicknameStatus == CheckStatus.checking,
+                      onPressed:
+                          viewModel.canCheckNickname &&
+                              _validateNickname(_nicknameController.text) ==
+                                  null
+                          ? () => viewModel.checkNickname(
+                              _nicknameController.text,
+                            )
+                          : null,
+                    ),
                   ),
                   const SizedBox(height: 20),
                   _AuthTextField(
@@ -125,9 +162,31 @@ class _SignupScreenState extends State<SignupScreen> {
                     touched: _emailTouched,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
-                    onChanged: (_) => setState(() => _emailTouched = true),
+                    onChanged: (value) {
+                      setState(() => _emailTouched = true);
+                      viewModel.onEmailChanged(value);
+                    },
                     onFieldSubmitted: (_) =>
                         FocusScope.of(context).requestFocus(_passwordFocusNode),
+                    serverErrorText: viewModel.emailErrorText,
+                    confirmed: emailStatus == CheckStatus.available,
+                    statusText: switch (emailStatus) {
+                      CheckStatus.checking => '이메일 사용 여부를 확인 중입니다.',
+                      CheckStatus.available => '사용 가능한 이메일입니다.',
+                      _ => null,
+                    },
+                    statusColor: emailStatus == CheckStatus.available
+                        ? AppColors.success
+                        : AppColors.info,
+                    trailing: MovieLogButton(
+                      label: '중복 확인',
+                      isLoading: emailStatus == CheckStatus.checking,
+                      onPressed:
+                          viewModel.canCheckEmail &&
+                              _validateEmail(_emailController.text) == null
+                          ? () => viewModel.checkEmail(_emailController.text)
+                          : null,
+                    ),
                   ),
                   const SizedBox(height: 20),
                   _AuthTextField(
@@ -149,7 +208,13 @@ class _SignupScreenState extends State<SignupScreen> {
                         setState(() => _agreedToTerms = value),
                   ),
                   const SizedBox(height: 16),
-                  _SubmitButton(enabled: _canSubmit, onPressed: _handleSubmit),
+                  // Form 맨 아래 버튼은 화면 전체 너비를 사용합니다.
+                  MovieLogButton(
+                    label: '가입하기',
+                    width: double.infinity,
+                    height: 48,
+                    onPressed: _canSubmit(viewModel) ? _handleSubmit : null,
+                  ),
                 ],
               ),
             ),
@@ -173,6 +238,11 @@ class _AuthTextField extends StatelessWidget {
     this.keyboardType,
     this.obscureText = false,
     this.focusNode,
+    this.serverErrorText,
+    this.confirmed,
+    this.statusText,
+    this.statusColor,
+    this.trailing,
   });
 
   final String label;
@@ -187,14 +257,33 @@ class _AuthTextField extends StatelessWidget {
   final bool obscureText;
   final FocusNode? focusNode;
 
+  /// 서버 중복 확인 결과 에러 문구입니다. 형식 검사 에러가 있으면 그쪽이 먼저 보입니다.
+  final String? serverErrorText;
+
+  /// 서버 확인까지 끝났는지 여부입니다. null이면 형식 검사 결과로만 체크 표시를 정합니다.
+  final bool? confirmed;
+
+  /// 에러가 없을 때 입력창 아래에 보여줄 상태 문구입니다. (확인 중, 사용 가능)
+  final String? statusText;
+  final Color? statusColor;
+
+  /// 입력창 바깥 오른쪽에 둘 위젯입니다. (중복 확인 버튼)
+  final Widget? trailing;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
     final isValid = validator(controller.text) == null;
-    final showError = touched && !isValid;
-    final showCheck = touched && isValid && controller.text.isNotEmpty;
+    final showError = (touched && !isValid) || serverErrorText != null;
+    // 체크 표시는 입력창 내부에만 두어 옆 버튼과 겹치지 않게 합니다.
+    final showCheck =
+        !showError &&
+        touched &&
+        isValid &&
+        controller.text.isNotEmpty &&
+        (confirmed ?? true);
     final borderColor = showError ? colors.error : colors.outlineVariant;
 
     return Column(
@@ -202,70 +291,98 @@ class _AuthTextField extends StatelessWidget {
       children: [
         Text(label, style: textTheme.titleSmall),
         const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          focusNode: focusNode,
-          obscureText: obscureText,
-          keyboardType: keyboardType,
-          textInputAction: textInputAction,
-          onChanged: onChanged,
-          onFieldSubmitted: onFieldSubmitted,
-          validator: validator,
-          decoration: InputDecoration(
-            hintText: hintText,
-            filled: true,
-            fillColor: showError
-                ? colors.errorContainer.withValues(alpha: 0.4)
-                : colors.surfaceContainerHighest,
-            suffixIcon: showError
-                ? Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: SvgPicture.asset(
-                      'assets/icons/error.svg',
-                      width: 20,
-                      height: 20,
-                      colorFilter: ColorFilter.mode(
-                        colors.error,
-                        BlendMode.srcIn,
+        _withTrailing(
+          TextFormField(
+            controller: controller,
+            focusNode: focusNode,
+            obscureText: obscureText,
+            keyboardType: keyboardType,
+            textInputAction: textInputAction,
+            onChanged: onChanged,
+            onFieldSubmitted: onFieldSubmitted,
+            validator: validator,
+            decoration: InputDecoration(
+              hintText: hintText,
+              errorText: serverErrorText,
+              helperText: showError ? null : statusText,
+              helperStyle: textTheme.bodySmall?.copyWith(
+                color: statusColor,
+                fontWeight: FontWeight.w600,
+              ),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 12,
+              ),
+              filled: true,
+              fillColor: showError
+                  ? colors.errorContainer.withValues(alpha: 0.4)
+                  : colors.surfaceContainerHighest,
+              suffixIcon: showError
+                  ? Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: SvgPicture.asset(
+                        'assets/icons/error.svg',
+                        width: 20,
+                        height: 20,
+                        colorFilter: ColorFilter.mode(
+                          colors.error,
+                          BlendMode.srcIn,
+                        ),
                       ),
-                    ),
-                  )
-                : showCheck
-                ? Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: SvgPicture.asset(
-                      'assets/icons/check_circle.svg',
-                      width: 20,
-                      height: 20,
-                      colorFilter: ColorFilter.mode(
-                        colors.primary,
-                        BlendMode.srcIn,
+                    )
+                  : showCheck
+                  ? Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: SvgPicture.asset(
+                        'assets/icons/check_circle.svg',
+                        width: 20,
+                        height: 20,
+                        colorFilter: ColorFilter.mode(
+                          colors.primary,
+                          BlendMode.srcIn,
+                        ),
                       ),
-                    ),
-                  )
-                : null,
-            suffixIconConstraints: const BoxConstraints(
-              minWidth: 44,
-              minHeight: 44,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: borderColor),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: borderColor, width: 2),
-            ),
-            errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: colors.error),
-            ),
-            focusedErrorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: colors.error, width: 2),
+                    )
+                  : null,
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 44,
+                minHeight: 44,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: borderColor),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: borderColor, width: 2),
+              ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: colors.error),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: colors.error, width: 2),
+              ),
             ),
           ),
         ),
+      ],
+    );
+  }
+
+  /// 입력창과 버튼을 Row의 별도 형제로 두고 8px 간격을 줍니다.
+  /// 위쪽을 맞춰 두어, 입력창 아래에 문구가 생겨도 버튼 위치는 그대로입니다.
+  Widget _withTrailing(Widget field) {
+    final trailing = this.trailing;
+    if (trailing == null) return field;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: field),
+        const SizedBox(width: 8),
+        trailing,
       ],
     );
   }
@@ -293,33 +410,6 @@ class _TermsCheckbox extends StatelessWidget {
           ),
           const Text('필수 약관에 동의합니다'),
         ],
-      ),
-    );
-  }
-}
-
-class _SubmitButton extends StatelessWidget {
-  const _SubmitButton({required this.enabled, required this.onPressed});
-
-  final bool enabled;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: enabled ? onPressed : null,
-        style: ElevatedButton.styleFrom(
-          minimumSize: const Size(0, 48),
-          backgroundColor: colors.primary,
-          foregroundColor: colors.onPrimary,
-          disabledBackgroundColor: colors.primary.withValues(alpha: 0.4),
-          disabledForegroundColor: colors.onPrimary,
-        ),
-        child: const Text('가입하기'),
       ),
     );
   }
