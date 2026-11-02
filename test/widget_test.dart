@@ -113,6 +113,14 @@ class _FakeTmdbMovieService extends TmdbMovieService {
     return discover(page, genreId);
   }
 
+  final detailCalls = <int>[];
+
+  @override
+  Future<TmdbMovieDto> fetchMovieDetail(int movieId) async {
+    detailCalls.add(movieId);
+    return _movie(movieId, '주소로 연 영화');
+  }
+
   @override
   Future<List<TmdbGenreDto>> fetchGenres() async => const [_sf, _drama];
 }
@@ -388,6 +396,47 @@ void main() {
     }
 
     expect(logs, contains(startsWith('[평점] movieId=2 ')));
+  });
+
+  testWidgets('Detail opened by URL loads TMDB movie by id', (
+    WidgetTester tester,
+  ) async {
+    final service = _FakeTmdbMovieService();
+    await pumpApp(tester, initialLocation: '/movies/77', service: service);
+
+    expect(service.detailCalls, [77]);
+    expect(find.text('주소로 연 영화'), findsOneWidget);
+    expect(find.text('영화 정보를 찾을 수 없어요.'), findsNothing);
+  });
+
+  testWidgets('Malformed discover response shows error view', (tester) async {
+    await pumpMovies(
+      tester,
+      _FakeTmdbMovieService(discover: (_, _) => throw TypeError()),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('다시 시도'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('Popular card opens detail with keyboard', (tester) async {
+    await pumpApp(tester, initialLocation: '/home');
+
+    for (var i = 0; i < 20; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final focused = FocusManager.instance.primaryFocus?.context;
+      if (focused != null &&
+          focused.findAncestorWidgetOfExactType<PopularMovieCard>() != null) {
+        break;
+      }
+    }
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cinema Archive'), findsOneWidget);
+    expect(find.text('인기 영화'), findsOneWidget);
   });
 
   testWidgets('Profile edit opens a bottom sheet', (WidgetTester tester) async {

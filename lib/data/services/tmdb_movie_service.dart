@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../models/tmdb_genre_dto.dart';
+import '../models/tmdb_movie_dto.dart';
 import '../models/tmdb_movie_page.dart';
 
 /// TMDB HTTP 요청과 DTO 변환만 담당합니다.
@@ -35,6 +36,15 @@ class TmdbMovieService {
       },
     );
     return TmdbMoviePageDto.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// 상세 화면을 주소로 바로 열었을 때(extra 없음) 영화 한 편을 불러옵니다.
+  Future<TmdbMovieDto> fetchMovieDetail(int movieId) async {
+    final response = await _dio.get(
+      '/movie/$movieId',
+      queryParameters: {'language': 'ko-KR'},
+    );
+    return TmdbMovieDto.fromJson(response.data as Map<String, dynamic>);
   }
 
   Future<List<TmdbGenreDto>> fetchGenres() async {

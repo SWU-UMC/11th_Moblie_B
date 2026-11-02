@@ -1,4 +1,3 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../data/models/tmdb_movie_dto.dart';
@@ -29,7 +28,9 @@ class MovieHomeViewModel extends ChangeNotifier {
       status = popularMovies.isEmpty
           ? MovieHomeLoadStatus.empty
           : MovieHomeLoadStatus.success;
-    } on DioException {
+    } catch (error) {
+      // 네트워크 오류뿐 아니라 응답 파싱 오류도 Error 상태로 보여줍니다.
+      debugPrint('Popular 요청 실패: $error');
       status = MovieHomeLoadStatus.error;
       message = '인기 영화를 불러오지 못했어요.';
     }
