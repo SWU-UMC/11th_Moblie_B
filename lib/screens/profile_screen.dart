@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../widgets/edit_profile_button.dart';
 import '../widgets/favorite_genres.dart';
@@ -61,7 +62,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Center(child: EditProfileButton(onPressed: _editProfile)),
               const SizedBox(height: 32),
               const ProfileStats(),
-              const SizedBox(height: 40),
+              const SizedBox(height: 24),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: colors.outlineVariant, width: 1.5),
+                ),
+                tileColor: colors.surfaceContainerLowest,
+                title: Text(
+                  '내가 등록한 평점',
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                trailing: Icon(Icons.chevron_right, color: colors.primary),
+                // 마이페이지 위에 자식 화면을 쌓아, 뒤로 가면 마이페이지로 돌아옵니다.
+                onTap: () => context.push('/my/ratings'),
+              ),
+              const SizedBox(height: 32),
               const FavoriteGenres(),
             ],
           ),
