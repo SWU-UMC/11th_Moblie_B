@@ -1,14 +1,10 @@
 import 'package:dio/dio.dart';
 
-import '../models/tmdb_genre_dto.dart';
-import '../models/tmdb_movie_dto.dart';
 import '../models/tmdb_movie_page.dart';
+import '../models/tmdb_genre_dto.dart';
 
-/// TMDB HTTP 요청과 DTO 변환만 담당합니다.
-/// "인기 5개", "최대 30개", "선택된 장르" 같은 화면 정책은 ViewModel이 관리합니다.
 class TmdbMovieService {
   TmdbMovieService(this._dio);
-
   final Dio _dio;
 
   Future<TmdbMoviePageDto> fetchPopular({int page = 1}) async {
@@ -31,20 +27,10 @@ class TmdbMovieService {
         'sort_by': 'popularity.desc',
         'include_adult': false,
         'include_video': false,
-        // 장르를 고르지 않았다면(null) with_genres를 아예 보내지 않습니다.
         'with_genres': ?genreId,
       },
     );
     return TmdbMoviePageDto.fromJson(response.data as Map<String, dynamic>);
-  }
-
-  /// 상세 화면을 주소로 바로 열었을 때(extra 없음) 영화 한 편을 불러옵니다.
-  Future<TmdbMovieDto> fetchMovieDetail(int movieId) async {
-    final response = await _dio.get(
-      '/movie/$movieId',
-      queryParameters: {'language': 'ko-KR'},
-    );
-    return TmdbMovieDto.fromJson(response.data as Map<String, dynamic>);
   }
 
   Future<List<TmdbGenreDto>> fetchGenres() async {

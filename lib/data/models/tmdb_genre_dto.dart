@@ -1,7 +1,5 @@
-/// TMDB 공식 장르 목록의 한 항목입니다.
 class TmdbGenreDto {
   const TmdbGenreDto({required this.id, required this.name});
-
   final int id;
   final String name;
 

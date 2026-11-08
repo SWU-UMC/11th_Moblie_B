@@ -1,7 +1,5 @@
 import 'tmdb_movie_dto.dart';
 
-/// Popular/Discover처럼 페이지 형태로 오는 응답을 담는 DTO입니다.
-/// total_pages로 다음 페이지 요청 여부를 판단합니다.
 class TmdbMoviePageDto {
   const TmdbMoviePageDto({
     required this.page,

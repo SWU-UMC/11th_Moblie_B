@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class ProfileHeader extends StatelessWidget {
-  const ProfileHeader({super.key, required this.nickname, required this.bio});
-
-  final String nickname;
-  final String bio;
+  const ProfileHeader({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -12,36 +10,34 @@ class ProfileHeader extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Container(
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: colors.primaryContainer, width: 3),
-          ),
-          child: ClipOval(
-            child: Image.asset(
-              'assets/images/profile/profile_movielog.jpg',
-              width: 120,
-              height: 120,
-              fit: BoxFit.cover,
-            ),
+        ClipOval(
+          child: Image.asset(
+            'assets/images/profile/profile_movielog.jpg',
+            width: 80,
+            height: 80,
+            fit: BoxFit.cover,
           ),
         ),
         const SizedBox(height: 16),
-        Text(
-          nickname,
-          style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text('무비러버', style: textTheme.titleLarge),
+            const SizedBox(width: 8),
+            SvgPicture.asset(
+              'assets/icons/check_circle.svg',
+              width: 20,
+              height: 20,
+              colorFilter: ColorFilter.mode(colors.primary, BlendMode.srcIn),
+              semanticsLabel: '인증된 프로필',
+            ),
+          ],
         ),
         const SizedBox(height: 8),
-        Text(
-          bio,
-          textAlign: TextAlign.center,
-          style: textTheme.bodyLarge?.copyWith(
-            color: colors.onSurfaceVariant,
-            height: 1.5,
-          ),
-        ),
+        const Text('좋아하는 영화를 기록하고 있어요'),
       ],
     );
   }

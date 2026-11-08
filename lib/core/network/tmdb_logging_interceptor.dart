@@ -1,8 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-/// TMDB 요청/응답/오류 로그를 한 형식으로 남깁니다.
-/// Authorization 값은 원문 대신 마스킹해서 출력합니다.
 class TmdbLoggingInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
@@ -30,8 +28,7 @@ class TmdbLoggingInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     debugPrint('[TMDB 오류] ${err.requestOptions.uri}');
-    // 401(Token 오류)처럼 서버가 응답한 경우 Status Code도 함께 남깁니다.
-    debugPrint('[TMDB 오류 내용] ${err.response?.statusCode} ${err.message}');
+    debugPrint('[TMDB 오류 내용] ${err.message}');
     handler.next(err);
   }
 }
