@@ -47,16 +47,6 @@ class TmdbMovieService {
     return TmdbMovieDto.fromJson(response.data as Map<String, dynamic>);
   }
 
-  /// 영화가 없으면(404) null을 돌려주고, 그 외 오류는 호출한 쪽에 그대로 던집니다.
-  Future<TmdbMovieDto?> findMovieById(int movieId) async {
-    try {
-      return await fetchMovieDetail(movieId);
-    } on DioException catch (error) {
-      if (error.response?.statusCode == 404) return null;
-      rethrow;
-    }
-  }
-
   Future<List<TmdbGenreDto>> fetchGenres() async {
     final response = await _dio.get(
       '/genre/movie/list',

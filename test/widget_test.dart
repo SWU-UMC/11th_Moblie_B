@@ -20,15 +20,12 @@ import 'package:movielog/screens/signup_screen.dart';
 import 'package:movielog/screens/start_screen.dart';
 import 'package:movielog/services/genre_preferences.dart';
 import 'package:movielog/theme/app_theme.dart';
-import 'package:movielog/view_models/signup_view_model.dart';
 import 'package:movielog/view_models/movie_home_view_model.dart';
 import 'package:movielog/view_models/movie_list_view_model.dart';
 import 'package:movielog/widgets/genre_filter_chips.dart';
 import 'package:movielog/widgets/movie_card.dart';
 import 'package:movielog/widgets/popular_movie_card.dart';
 import 'package:movielog/widgets/tmdb_poster_image.dart';
-
-import 'fakes/movie_log_fakes.dart';
 
 const _sf = TmdbGenreDto(id: 878, name: 'SF');
 const _drama = TmdbGenreDto(id: 18, name: '드라마');
@@ -188,8 +185,6 @@ void main() {
       MovieLogApp(
         router: router,
         movieService: service ?? _FakeTmdbMovieService(),
-        memberCheckService: FakeMemberCheckService(),
-        ratingApiService: FakeRatingApiService((_) async => const []),
       ),
     );
     await tester.pumpAndSettle();
@@ -224,11 +219,6 @@ void main() {
     await tester.enterText(fields.at(0), '무비러버');
     await tester.enterText(fields.at(1), 'movie@example.com');
     await tester.enterText(fields.at(2), 'password123');
-    // 닉네임·이메일 모두 중복 확인을 마쳐야 가입할 수 있습니다.
-    await tester.tap(find.text('중복 확인').at(0));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('중복 확인').at(1));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('필수 약관에 동의합니다'));
     await tester.pump();
     await tester.tap(find.text('가입하기'));
@@ -467,13 +457,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: ChangeNotifierProvider(
-          create: (_) => SignUpViewModel(FakeMemberCheckService()),
-          child: const SignupScreen(),
-        ),
-      ),
+      MaterialApp(theme: AppTheme.light, home: const SignupScreen()),
     );
 
     final submitButtonFinder = find.widgetWithText(ElevatedButton, '가입하기');
@@ -493,14 +477,6 @@ void main() {
     );
     await tester.enterText(find.byType(TextFormField).at(2), 'password123');
     await tester.tap(find.text('필수 약관에 동의합니다'));
-    await tester.pump();
-
-    // 형식이 맞아도 중복 확인 전에는 가입할 수 없습니다.
-    expect(submitButton().onPressed, isNull);
-
-    await tester.tap(find.text('중복 확인').at(0));
-    await tester.pump();
-    await tester.tap(find.text('중복 확인').at(1));
     await tester.pump();
 
     expect(submitButton().onPressed, isNotNull);
