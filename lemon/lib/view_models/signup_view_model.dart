@@ -1,6 +1,11 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-import '../data/services/member_check_service.dart';
+import '../data/models/create_member_request.dart';
+import '../data/services/sign_up_service.dart';
+import 'submit_status.dart';
+
+export 'submit_status.dart';
 
 /// 중복 확인 한 칸(닉네임 또는 이메일)의 상태입니다.
 enum CheckStatus {
@@ -20,22 +25,36 @@ enum CheckStatus {
   error,
 }
 
-/// 회원가입 화면의 닉네임·이메일 중복 확인 상태를 관리합니다.
-/// 두 입력란의 결과가 서로 영향을 주지 않도록 상태를 필드별로 따로 둡니다.
+/// 회원가입 화면의 닉네임·이메일 중복 확인과 가입 요청 상태를 관리합니다.
+/// 두 입력란의 결과가 서로 영향을 주지 않도록 중복 확인 상태를 필드별로 따로 둡니다.
 class SignUpViewModel extends ChangeNotifier {
-  SignUpViewModel(MemberCheckService service)
+  SignUpViewModel(this._service)
     : _nickname = _DuplicateCheck(
-        request: service.checkNickname,
+        request: _service.checkNickname,
         duplicatedText: '이미 사용 중인 닉네임입니다.',
       ),
       _email = _DuplicateCheck(
-        request: service.checkEmail,
+        request: _service.checkEmail,
         duplicatedText: '이미 사용 중인 이메일입니다.',
       );
 
+  final SignUpService _service;
   final _DuplicateCheck _nickname;
   final _DuplicateCheck _email;
   bool _disposed = false;
+
+  SubmitStatus submitStatus = SubmitStatus.idle;
+
+  /// 가입 성공 응답에서 읽은 실제 memberId입니다.
+  int? createdMemberId;
+
+  /// 서버가 비밀번호 형식을 거부한 400입니다. 비밀번호 입력칸에 붙입니다.
+  String? passwordErrorText;
+
+  /// 입력칸 하나에 붙일 수 없는 오류(409, 그 밖의 400, 통신 실패)입니다. Snackbar로 한 번 보여줍니다.
+  String? snackbarMessage;
+
+  bool get isSubmitting => submitStatus == SubmitStatus.submitting;
 
   CheckStatus get nicknameCheckStatus => _nickname.status;
   String? get nicknameErrorText => _nickname.errorText;
@@ -48,12 +67,63 @@ class SignUpViewModel extends ChangeNotifier {
   void onNicknameChanged(String value) => _onChanged(_nickname, value);
   void onEmailChanged(String value) => _onChanged(_email, value);
 
+  /// 비밀번호를 고치면 서버가 거부했던 이전 오류를 지웁니다.
+  void onPasswordChanged() {
+    if (passwordErrorText == null) return;
+    passwordErrorText = null;
+    notifyListeners();
+  }
+
   Future<void> checkNickname(String value) => _check(_nickname, value);
   Future<void> checkEmail(String value) => _check(_email, value);
 
+  /// 입력이 바뀌면 이전 중복 확인 결과와 서버 오류를 함께 무효화합니다.
   void _onChanged(_DuplicateCheck field, String value) {
     field.onChanged(value);
+    snackbarMessage = null;
+    if (submitStatus == SubmitStatus.error) submitStatus = SubmitStatus.idle;
     if (!_disposed) notifyListeners();
+  }
+
+  /// 가입 요청을 보냅니다. 비밀번호는 로그에 남기지 않습니다.
+  Future<void> submit(CreateMemberRequest request) async {
+    if (isSubmitting) return;
+    submitStatus = SubmitStatus.submitting;
+    createdMemberId = null;
+    passwordErrorText = null;
+    snackbarMessage = null;
+    notifyListeners();
+
+    try {
+      final response = await _service.signUp(request);
+      final id = response.result?.memberId;
+      if (id == null) throw StateError('회원가입 결과에 memberId가 없습니다.');
+      createdMemberId = id;
+      submitStatus = SubmitStatus.success;
+    } on DioException catch (error) {
+      submitStatus = SubmitStatus.error;
+      final status = error.response?.statusCode;
+      final message = writeSignUpErrorMessage(error);
+      if (status == 400 && message.contains('비밀번호')) {
+        passwordErrorText = message;
+      } else {
+        snackbarMessage = message;
+        // 중복 확인 뒤 다른 사람이 먼저 가입했다면, 해당 칸을 다시 "중복"으로 되돌립니다.
+        if (status == 409) _markConflict(message, request);
+      }
+    } catch (error) {
+      // 201인데 memberId가 없거나 형식이 다른 경우입니다. 가입 완료로 표시하지 않습니다.
+      debugPrint('회원가입 응답 확인 실패: ${error.runtimeType}');
+      submitStatus = SubmitStatus.error;
+      snackbarMessage = '가입 결과를 확인하지 못했습니다. 새 요청 전에 서버 상태를 확인해 주세요.';
+    }
+    if (!_disposed) notifyListeners();
+  }
+
+  /// 서버가 이메일을 먼저 검사하므로 409 message에 담긴 쪽만 중복으로 표시합니다.
+  void _markConflict(String message, CreateMemberRequest request) {
+    if (message.contains('이메일')) _email.markDuplicated(request.email);
+    if (message.contains('닉네임')) _nickname.markDuplicated(request.nickname);
   }
 
   Future<void> _check(_DuplicateCheck field, String value) async {
@@ -108,6 +178,16 @@ class _DuplicateCheck {
   }
 
   void invalidate() => _requestVersion++;
+
+  /// 가입 요청의 409로 중복이 확정된 값을 기록합니다.
+  void markDuplicated(String value) {
+    final duplicated = value.trim();
+    _duplicatedValues.add(duplicated);
+    if (_current != duplicated) return;
+    invalidate();
+    status = CheckStatus.duplicated;
+    errorText = duplicatedText;
+  }
 
   /// 요청을 시작할 수 있으면 상태를 checking으로 바꾸고 요청 버전을 돌려줍니다.
   int? start(String value) {

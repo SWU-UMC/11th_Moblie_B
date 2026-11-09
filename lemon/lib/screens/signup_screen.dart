@@ -3,7 +3,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../data/models/create_member_request.dart';
 import '../theme/app_colors.dart';
+import '../view_models/learning_member_session.dart';
 import '../view_models/signup_view_model.dart';
 import '../widgets/movielog_app_bar.dart';
 import '../widgets/movielog_button.dart';
@@ -42,6 +44,7 @@ class _SignupScreenState extends State<SignupScreen> {
     final text = value?.trim() ?? '';
     if (text.isEmpty) return '닉네임을 입력해주세요.';
     if (text.length < 2) return '닉네임은 2자 이상이어야 합니다.';
+    if (text.length > 12) return '닉네임은 12자 이하여야 합니다.';
     return null;
   }
 
@@ -54,10 +57,23 @@ class _SignupScreenState extends State<SignupScreen> {
     return null;
   }
 
+  static final _passwordRules = [
+    RegExp('[a-z]'),
+    RegExp('[A-Z]'),
+    RegExp(r'\d'),
+    RegExp(r'[!@#$%^&*]'),
+  ];
+
+  /// 서버와 같은 규칙입니다. 빠른 안내용이며 서버 검증(400)을 대신하지 않습니다.
+  /// 비밀번호 값 자체는 바꾸지 않고(trim 없음), 앞뒤 공백은 여기서 막습니다.
   String? _validatePassword(String? value) {
     final text = value ?? '';
     if (text.isEmpty) return '비밀번호를 입력해주세요.';
+    if (text.trim() != text) return '비밀번호 앞뒤에는 공백을 넣을 수 없습니다.';
     if (text.length < 8) return '비밀번호는 8자 이상이어야 합니다.';
+    if (!_passwordRules.every((rule) => rule.hasMatch(text))) {
+      return '소문자·대문자·숫자·특수문자(!@#\$%^&*)를 하나 이상씩 넣어주세요.';
+    }
     return null;
   }
 
@@ -68,10 +84,12 @@ class _SignupScreenState extends State<SignupScreen> {
       _validatePassword(_passwordController.text) == null &&
       viewModel.nicknameCheckStatus == CheckStatus.available &&
       viewModel.emailCheckStatus == CheckStatus.available &&
-      _agreedToTerms;
+      _agreedToTerms &&
+      !viewModel.isSubmitting;
 
-  void _handleSubmit() {
-    if (!_canSubmit(context.read<SignUpViewModel>())) return;
+  Future<void> _handleSubmit() async {
+    final viewModel = context.read<SignUpViewModel>();
+    if (!_canSubmit(viewModel)) return;
     setState(() {
       _nicknameTouched = true;
       _emailTouched = true;
@@ -79,9 +97,41 @@ class _SignupScreenState extends State<SignupScreen> {
     });
     FocusScope.of(context).unfocus();
     final isValid = _formKey.currentState?.validate() ?? false;
-    if (isValid && _agreedToTerms) {
-      // API 없이 화면 내부 상태만 사용합니다. go로 이동해 회원가입 화면을 스택에서 제거합니다.
-      context.go('/home');
+    if (!isValid || !_agreedToTerms) return;
+
+    await viewModel.submit(
+      CreateMemberRequest(
+        email: _emailController.text,
+        password: _passwordController.text,
+        nickname: _nicknameController.text,
+      ),
+    );
+    if (!mounted) return;
+
+    final memberId = viewModel.createdMemberId;
+    final messenger = ScaffoldMessenger.of(context);
+    if (viewModel.submitStatus == SubmitStatus.success && memberId != null) {
+      // 받은 memberId를 앱 전체의 학습용 세션에 두고, 영화 상세·마이페이지에서 같은 값을 읽습니다.
+      context.read<LearningMemberSession>().setMemberId(memberId);
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('회원가입이 완료됐어요. (학습용 memberId $memberId)'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      // go로 이동해 회원가입 화면을 스택에서 제거합니다.
+      context.go('/movies');
+      return;
+    }
+    final message = viewModel.snackbarMessage;
+    if (message != null) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        );
     }
   }
 
@@ -94,7 +144,9 @@ class _SignupScreenState extends State<SignupScreen> {
     final checkButtonWidth = MovieLogButton.contentWidth(context, '중복 확인');
     final nicknameStatus = viewModel.nicknameCheckStatus;
     final emailStatus = viewModel.emailCheckStatus;
+    final isSubmitting = viewModel.isSubmitting;
 
+    // 2주차부터 회원가입 화면은 뒤로 가기를 막아 두었으므로, 제출 중 이탈도 함께 막힙니다.
     return PopScope(
       canPop: false,
       child: Scaffold(
@@ -123,6 +175,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     label: '닉네임',
                     hintText: '닉네임을 입력해주세요',
                     controller: _nicknameController,
+                    enabled: !isSubmitting,
                     validator: _validateNickname,
                     touched: _nicknameTouched,
                     textInputAction: TextInputAction.next,
@@ -147,7 +200,8 @@ class _SignupScreenState extends State<SignupScreen> {
                       label: '중복 확인',
                       isLoading: nicknameStatus == CheckStatus.checking,
                       onPressed:
-                          viewModel.canCheckNickname &&
+                          !isSubmitting &&
+                              viewModel.canCheckNickname &&
                               _validateNickname(_nicknameController.text) ==
                                   null
                           ? () => viewModel.checkNickname(
@@ -161,6 +215,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     label: '이메일',
                     hintText: '이메일 주소를 입력해주세요',
                     controller: _emailController,
+                    enabled: !isSubmitting,
                     validator: _validateEmail,
                     touched: _emailTouched,
                     keyboardType: TextInputType.emailAddress,
@@ -186,7 +241,8 @@ class _SignupScreenState extends State<SignupScreen> {
                       label: '중복 확인',
                       isLoading: emailStatus == CheckStatus.checking,
                       onPressed:
-                          viewModel.canCheckEmail &&
+                          !isSubmitting &&
+                              viewModel.canCheckEmail &&
                               _validateEmail(_emailController.text) == null
                           ? () => viewModel.checkEmail(_emailController.text)
                           : null,
@@ -197,19 +253,26 @@ class _SignupScreenState extends State<SignupScreen> {
                     label: '비밀번호',
                     hintText: '비밀번호를 입력해주세요',
                     controller: _passwordController,
+                    enabled: !isSubmitting,
                     validator: _validatePassword,
                     touched: _passwordTouched,
                     obscureText: true,
                     focusNode: _passwordFocusNode,
                     textInputAction: TextInputAction.done,
-                    onChanged: (_) => setState(() => _passwordTouched = true),
+                    onChanged: (_) {
+                      setState(() => _passwordTouched = true);
+                      viewModel.onPasswordChanged();
+                    },
                     onFieldSubmitted: (_) => _handleSubmit(),
+                    // 로컬 검사를 통과해도 서버가 거부한 비밀번호면 계속 에러로 보여줍니다.
+                    serverErrorText: viewModel.passwordErrorText,
                   ),
                   const SizedBox(height: 24),
                   _TermsCheckbox(
                     value: _agreedToTerms,
-                    onChanged: (value) =>
-                        setState(() => _agreedToTerms = value),
+                    onChanged: isSubmitting
+                        ? null
+                        : (value) => setState(() => _agreedToTerms = value),
                   ),
                   const SizedBox(height: 16),
                   // Form 맨 아래 버튼은 화면 전체 너비를 사용합니다.
@@ -217,6 +280,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     label: '가입하기',
                     width: double.infinity,
                     height: 48,
+                    isLoading: isSubmitting,
                     onPressed: _canSubmit(viewModel) ? _handleSubmit : null,
                   ),
                 ],
@@ -238,6 +302,7 @@ class _AuthTextField extends StatelessWidget {
     required this.touched,
     required this.onChanged,
     required this.onFieldSubmitted,
+    this.enabled = true,
     this.textInputAction,
     this.keyboardType,
     this.obscureText = false,
@@ -257,6 +322,9 @@ class _AuthTextField extends StatelessWidget {
   final bool touched;
   final ValueChanged<String> onChanged;
   final ValueChanged<String> onFieldSubmitted;
+
+  /// 가입 요청 중에는 입력을 막습니다.
+  final bool enabled;
   final TextInputAction? textInputAction;
   final TextInputType? keyboardType;
   final bool obscureText;
@@ -302,6 +370,7 @@ class _AuthTextField extends StatelessWidget {
         _withTrailing(
           TextFormField(
             controller: controller,
+            enabled: enabled,
             focusNode: focusNode,
             obscureText: obscureText,
             keyboardType: keyboardType,
@@ -419,21 +488,26 @@ class _TermsCheckbox extends StatelessWidget {
   const _TermsCheckbox({required this.value, required this.onChanged});
 
   final bool value;
-  final ValueChanged<bool> onChanged;
+
+  /// null이면 비활성입니다. (가입 요청 중)
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final onChanged = this.onChanged;
 
     return InkWell(
-      onTap: () => onChanged(!value),
+      onTap: onChanged == null ? null : () => onChanged(!value),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Checkbox(
             value: value,
             activeColor: colors.primary,
-            onChanged: (checked) => onChanged(checked ?? false),
+            onChanged: onChanged == null
+                ? null
+                : (checked) => onChanged(checked ?? false),
           ),
           // 글자가 커져도 넘치지 않고 줄바꿈되도록 남은 너비 안에 둡니다.
           const Flexible(child: Text('필수 약관에 동의합니다')),

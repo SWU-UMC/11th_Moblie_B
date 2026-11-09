@@ -10,8 +10,8 @@ import 'package:provider/provider.dart';
 
 import 'package:movielog/data/models/check_result.dart';
 import 'package:movielog/data/models/rating_dto.dart';
-import 'package:movielog/data/services/member_check_service.dart';
 import 'package:movielog/data/services/rating_api_service.dart';
+import 'package:movielog/data/services/sign_up_service.dart';
 import 'package:movielog/main.dart';
 import 'package:movielog/router/app_router.dart';
 import 'package:movielog/screens/my_ratings_screen.dart';
@@ -109,7 +109,7 @@ void main() {
       MovieLogApp(
         router: router,
         movieService: FakeMovieLookupService(),
-        memberCheckService: FakeMemberCheckService(),
+        signUpService: FakeSignUpService(),
         ratingApiService: FakeRatingApiService((_) async => const []),
       ),
     );
@@ -133,7 +133,7 @@ void main() {
   });
 
   group('Signup duplicate check', () {
-    late FakeMemberCheckService service;
+    late FakeSignUpService service;
 
     Future<void> pumpSignup(WidgetTester tester) async {
       useTallScreen(tester);
@@ -156,7 +156,7 @@ void main() {
     testWidgets('idle -> checking -> available, then reset on edit', (
       tester,
     ) async {
-      service = FakeMemberCheckService();
+      service = FakeSignUpService();
       await pumpSignup(tester);
 
       await tester.enterText(field(0), '무비러버');
@@ -184,7 +184,7 @@ void main() {
     testWidgets('re-entering a duplicated value shows error without API', (
       tester,
     ) async {
-      service = FakeMemberCheckService(taken: {'영화광'});
+      service = FakeSignUpService(taken: {'영화광'});
       await pumpSignup(tester);
 
       await tester.enterText(field(0), '영화광');
@@ -206,7 +206,7 @@ void main() {
     });
 
     testWidgets('network failure differs from duplicated', (tester) async {
-      service = FakeMemberCheckService(fail: true);
+      service = FakeSignUpService(fail: true);
       await pumpSignup(tester);
 
       await tester.enterText(field(1), 'movie@umc.com');
@@ -221,7 +221,7 @@ void main() {
     });
 
     testWidgets('response for an old input is ignored', (tester) async {
-      service = FakeMemberCheckService();
+      service = FakeSignUpService();
       await pumpSignup(tester);
 
       await tester.enterText(field(0), '무비러버');
@@ -240,7 +240,7 @@ void main() {
     });
 
     testWidgets('nickname and email results stay separate', (tester) async {
-      service = FakeMemberCheckService(taken: {'영화광'});
+      service = FakeSignUpService(taken: {'영화광'});
       await pumpSignup(tester);
 
       await tester.enterText(field(0), '영화광');
@@ -256,7 +256,7 @@ void main() {
     });
 
     testWidgets('check button stays beside the field', (tester) async {
-      service = FakeMemberCheckService();
+      service = FakeSignUpService();
       await pumpSignup(tester);
 
       final fieldBox = tester.getRect(field(0));
@@ -268,7 +268,7 @@ void main() {
     testWidgets('check button moves below the field when the row is narrow', (
       tester,
     ) async {
-      service = FakeMemberCheckService();
+      service = FakeSignUpService();
       tester.view.physicalSize = const Size(960, 2400);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -310,8 +310,7 @@ void main() {
           theme: AppTheme.light,
           home: ChangeNotifierProvider(
             create: (_) =>
-                MyRatingsViewModel(ratingService, movieService, sampleMemberId)
-                  ..load(),
+                MyRatingsViewModel(ratingService, movieService, 1)..load(),
             child: const MyRatingsScreen(),
           ),
         ),
@@ -328,8 +327,9 @@ void main() {
         MovieLogApp(
           router: router,
           movieService: movieService,
-          memberCheckService: FakeMemberCheckService(),
+          signUpService: FakeSignUpService(),
           ratingApiService: ratingService,
+          initialMemberId: 1,
         ),
       );
       await tester.pumpAndSettle();
@@ -389,7 +389,7 @@ void main() {
       await pumpRatings(tester);
       await tester.pumpAndSettle();
       expect(find.text('아직 등록한 평점이 없어요.'), findsOneWidget);
-      expect(find.text('학습용 샘플 회원(memberId 1)의 평점입니다.'), findsOneWidget);
+      expect(find.text('학습용 회원(memberId 1)의 평점입니다.'), findsOneWidget);
     });
 
     testWidgets('404 shows member message and retry recovers', (tester) async {
@@ -397,14 +397,14 @@ void main() {
       ratingService = FakeRatingApiService((memberId) async {
         calls++;
         if (calls == 1) {
-          throw fakeDioError('/v5/members/$memberId/ratings', statusCode: 404);
+          throw fakeDioError('/v6/members/$memberId/ratings', statusCode: 404);
         }
         return [fakeRating(1, 550, 5)];
       });
       await pumpRatings(tester);
       await tester.pumpAndSettle();
       expect(find.text('존재하지 않는 회원입니다.'), findsOneWidget);
-      expect(find.text('학습용 샘플 회원(memberId 1)의 평점입니다.'), findsOneWidget);
+      expect(find.text('학습용 회원(memberId 1)의 평점입니다.'), findsOneWidget);
 
       await tester.tap(find.text('다시 시도'));
       await tester.pumpAndSettle();
@@ -439,7 +439,7 @@ void main() {
     });
   });
 
-  group('Real v5 services', () {
+  group('Real v6 read services', () {
     late _RecordingAdapter adapter;
 
     Dio dio() =>
@@ -448,15 +448,15 @@ void main() {
 
     test('checkNickname and checkEmail request their own paths', () async {
       adapter = _RecordingAdapter('{"available": false}');
-      final service = MemberCheckService(dio());
+      final service = SignUpService(dio());
 
       expect(await service.checkNickname(' 영화광 '), isFalse);
       expect(await service.checkEmail('movie@umc.com'), isFalse);
 
       // 앞뒤 공백은 지우고, 경로에 들어가는 값은 인코딩합니다.
       expect(adapter.paths, [
-        '/v5/members/nickname/${Uri.encodeComponent('영화광')}',
-        '/v5/members/email/movie%40umc.com',
+        '/v6/members/nickname/${Uri.encodeComponent('영화광')}',
+        '/v6/members/email/movie%40umc.com',
       ]);
     });
 
@@ -467,12 +467,12 @@ void main() {
       );
       final ratings = await RatingApiService(dio()).fetchMyRatings(1);
 
-      expect(adapter.paths, ['/v5/members/1/ratings']);
+      expect(adapter.paths, ['/v6/members/1/ratings']);
       expect(ratings.single.movieId, 550);
     });
   });
 
-  test('RatingDto and CheckResult parse v5 responses', () {
+  test('RatingDto and CheckResult parse direct v6 success responses', () {
     final rating = RatingDto.fromJson({
       'ratingId': 3,
       'movieId': 13,
