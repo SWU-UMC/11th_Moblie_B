@@ -1,5 +1,10 @@
+import 'package:provider/provider.dart';
+
+import 'view_models/sign_up_view_model.dart';
+import 'widgets/movielog_button.dart';
+
 // 대화에서 완성한 2주차 입력 검증 구조를 재사용한 화면입니다.
-// 실제 인증/API 없이 시작 → 회원가입 → 홈의 이동만 연결합니다.
+// 중복 여부만 조회하며 실제 회원가입 POST는 보내지 않습니다.
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -84,6 +89,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
       emailEdited = true;
       passwordEdited = true;
     });
+    final vm = context.read<SignUpViewModel>();
+    if (vm.nicknameCheckStatus != CheckStatus.available ||
+        vm.emailCheckStatus != CheckStatus.available) {
+      return;
+    }
     final valid = formKey.currentState?.validate() ?? false;
     if (!valid || !agreedToTerms) return;
     FocusScope.of(context).unfocus();
@@ -103,11 +113,17 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final vm = context.watch<SignUpViewModel>();
     final nicknameValid = validateNickname(nicknameController.text) == null;
     final emailValid = validateEmail(emailController.text) == null;
     final passwordValid = validatePassword(passwordController.text) == null;
     final canSubmit =
-        nicknameValid && emailValid && passwordValid && agreedToTerms;
+        nicknameValid &&
+        emailValid &&
+        passwordValid &&
+        agreedToTerms &&
+        vm.nicknameCheckStatus == CheckStatus.available &&
+        vm.emailCheckStatus == CheckStatus.available;
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -143,34 +159,103 @@ class _SignUpScreenState extends State<SignUpScreen> {
                               style: theme.textTheme.bodyLarge,
                             ),
                             const SizedBox(height: 40),
-                            SignUpInputField(
-                              label: '닉네임',
-                              hintText: '닉네임을 입력해주세요',
-                              controller: nicknameController,
-                              edited: nicknameEdited,
-                              isValid: nicknameValid,
-                              validator: validateNickname,
-                              textInputAction: TextInputAction.next,
-                              onChanged: (_) =>
-                                  setState(() => nicknameEdited = true),
-                              onFieldSubmitted: (_) => emailNode.requestFocus(),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: SignUpInputField(
+                                    label: '닉네임',
+                                    hintText: '닉네임을 입력해주세요',
+                                    controller: nicknameController,
+                                    edited: nicknameEdited,
+                                    isValid:
+                                        vm.nicknameCheckStatus ==
+                                        CheckStatus.available,
+                                    errorText: vm.nicknameErrorText,
+                                    validator: validateNickname,
+                                    textInputAction: TextInputAction.next,
+                                    onChanged: (value) {
+                                      vm.onNicknameChanged(value);
+                                      setState(() => nicknameEdited = true);
+                                    },
+                                    onFieldSubmitted: (_) =>
+                                        emailNode.requestFocus(),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 30),
+                                  child: MovieLogButton(
+                                    label: '중복 확인',
+                                    isLoading:
+                                        vm.nicknameCheckStatus ==
+                                        CheckStatus.checking,
+                                    onPressed: vm.canCheckNickname
+                                        ? () => vm.checkNickname(
+                                            nicknameController.text,
+                                          )
+                                        : null,
+                                  ),
+                                ),
+                              ],
                             ),
+                            if (vm.nicknameCheckStatus == CheckStatus.available)
+                              const Text(
+                                '사용할 수 있는 닉네임입니다.',
+                                style: TextStyle(color: Colors.green),
+                              ),
+                            if (vm.nicknameCheckStatus == CheckStatus.checking)
+                              const Text('닉네임 사용 가능 여부를 확인 중입니다.'),
                             const SizedBox(height: 20),
-                            SignUpInputField(
-                              label: '이메일',
-                              hintText: '이메일 주소를 입력해주세요',
-                              controller: emailController,
-                              focusNode: emailNode,
-                              edited: emailEdited,
-                              isValid: emailValid,
-                              validator: validateEmail,
-                              keyboardType: TextInputType.emailAddress,
-                              textInputAction: TextInputAction.next,
-                              onChanged: (_) =>
-                                  setState(() => emailEdited = true),
-                              onFieldSubmitted: (_) =>
-                                  passwordNode.requestFocus(),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: SignUpInputField(
+                                    label: '이메일',
+                                    hintText: '이메일 주소를 입력해주세요',
+                                    controller: emailController,
+                                    focusNode: emailNode,
+                                    edited: emailEdited,
+                                    isValid:
+                                        vm.emailCheckStatus ==
+                                        CheckStatus.available,
+                                    errorText: vm.emailErrorText,
+                                    validator: validateEmail,
+                                    keyboardType: TextInputType.emailAddress,
+                                    textInputAction: TextInputAction.next,
+                                    onChanged: (value) {
+                                      vm.onEmailChanged(value);
+                                      setState(() => emailEdited = true);
+                                    },
+                                    onFieldSubmitted: (_) =>
+                                        passwordNode.requestFocus(),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 30),
+                                  child: MovieLogButton(
+                                    label: '중복 확인',
+                                    isLoading:
+                                        vm.emailCheckStatus ==
+                                        CheckStatus.checking,
+                                    onPressed: vm.canCheckEmail
+                                        ? () => vm.checkEmail(
+                                            emailController.text,
+                                          )
+                                        : null,
+                                  ),
+                                ),
+                              ],
                             ),
+                            if (vm.emailCheckStatus == CheckStatus.available)
+                              const Text(
+                                '사용할 수 있는 이메일입니다.',
+                                style: TextStyle(color: Colors.green),
+                              ),
+                            if (vm.emailCheckStatus == CheckStatus.checking)
+                              const Text('이메일 사용 가능 여부를 확인 중입니다.'),
                             const SizedBox(height: 20),
                             SignUpInputField(
                               label: '비밀번호',
@@ -206,9 +291,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                 ],
                               ),
                               const SizedBox(height: 16),
-                              ElevatedButton(
+                              MovieLogButton(
+                                label: '가입하기',
+                                width: double.infinity,
                                 onPressed: canSubmit ? submitForm : null,
-                                child: const Text('가입하기'),
                               ),
                               const SizedBox(height: 24),
                               Wrap(
@@ -251,9 +337,11 @@ class SignUpInputField extends StatelessWidget {
     required this.onFieldSubmitted,
     required this.textInputAction,
     this.focusNode,
+    this.errorText,
     this.keyboardType = TextInputType.text,
     this.obscureText = false,
   });
+  final String? errorText;
   final String label;
   final String hintText;
   final TextEditingController controller;
@@ -270,7 +358,8 @@ class SignUpInputField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasError = edited && !isValid;
+    final hasError =
+        errorText != null || (edited && validator(controller.text) != null);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -293,6 +382,7 @@ class SignUpInputField extends StatelessWidget {
           autovalidateMode: AutovalidateMode.onUserInteraction,
           decoration: InputDecoration(
             hintText: hintText,
+            errorText: errorText,
             fillColor: hasError ? theme.colorScheme.errorContainer : null,
             suffixIcon: hasError
                 ? Icon(Icons.error_outline, color: theme.colorScheme.error)
@@ -300,7 +390,7 @@ class SignUpInputField extends StatelessWidget {
                 ? Icon(Icons.check_circle, color: theme.colorScheme.primary)
                 : null,
           ),
-          validator: validator,
+          validator: (value) => validator(value) ?? errorText,
           onChanged: onChanged,
           onFieldSubmitted: onFieldSubmitted,
         ),

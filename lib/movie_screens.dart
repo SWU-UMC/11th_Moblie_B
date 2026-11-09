@@ -700,6 +700,11 @@ class MyPageScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 32),
+          ListTile(
+            title: const Text('내가 등록한 평점'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/my/ratings'),
+          ),
           Text('선호하는 장르', style: theme.textTheme.headlineMedium),
           const SizedBox(height: 12),
           const Wrap(
