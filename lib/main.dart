@@ -1,3 +1,9 @@
+import 'package:dio/dio.dart';
+
+import 'core/network/movie_log_client.dart';
+import 'data/services/member_check_service.dart';
+import 'data/services/rating_api_service.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
@@ -20,6 +26,16 @@ class MovieLogApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        Provider<Dio>(
+          create: (_) => createMovieLogClient(),
+          dispose: (_, client) => client.close(),
+        ),
+        Provider<MemberCheckService>(
+          create: (context) => MemberCheckService(context.read<Dio>()),
+        ),
+        Provider<RatingApiService>(
+          create: (context) => RatingApiService(context.read<Dio>()),
+        ),
         Provider<TmdbMovieService>(
           create: (_) => TmdbMovieService(createTmdbClient()),
         ),
