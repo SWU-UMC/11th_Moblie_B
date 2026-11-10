@@ -120,6 +120,8 @@ GoRouter createAppRouter({String initialLocation = '/'}) {
           final movieId = state.pathParameters['movieId']!;
           final extra = state.extra;
           return MovieDetailLoader(
+            // 다른 영화로 바뀌면 이전 영화의 상태·ViewModel을 재사용하지 않도록 새로 만듭니다.
+            key: ValueKey(movieId),
             movieId: movieId,
             initialMovie: extra is TmdbMovieDto && '${extra.id}' == movieId
                 ? extra

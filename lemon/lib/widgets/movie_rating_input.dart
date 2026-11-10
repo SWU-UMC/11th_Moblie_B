@@ -23,23 +23,28 @@ class MovieRatingInput extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
 
+    // RatingBar는 Wrap이라 좁으면 다섯 번째 별이 다음 줄로 넘어가 드래그 위치와 점수가 어긋납니다.
+    // 한 줄로 그린 뒤 FittedBox로 줄여, 터치 좌표도 같은 비율로 변환되게 합니다.
     return Semantics(
       label: rating == 0 ? '별점을 선택해주세요' : '별점 ${rating.toInt()}점',
-      child: RatingBar(
-        initialRating: rating,
-        minRating: 1,
-        allowHalfRating: false,
-        ignoreGestures: !enabled,
-        glow: false,
-        itemCount: 5,
-        itemSize: 44,
-        itemPadding: const EdgeInsets.symmetric(horizontal: 2),
-        ratingWidget: RatingWidget(
-          full: Icon(Icons.star_rounded, color: colors.primary),
-          half: Icon(Icons.star_half_rounded, color: colors.primary),
-          empty: Icon(Icons.star_outline_rounded, color: colors.primary),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: RatingBar(
+          initialRating: rating,
+          minRating: 1,
+          allowHalfRating: false,
+          ignoreGestures: !enabled,
+          glow: false,
+          itemCount: 5,
+          itemSize: 44,
+          itemPadding: const EdgeInsets.symmetric(horizontal: 2),
+          ratingWidget: RatingWidget(
+            full: Icon(Icons.star_rounded, color: colors.primary),
+            half: Icon(Icons.star_half_rounded, color: colors.primary),
+            empty: Icon(Icons.star_outline_rounded, color: colors.primary),
+          ),
+          onRatingUpdate: onChanged,
         ),
-        onRatingUpdate: onChanged,
       ),
     );
   }

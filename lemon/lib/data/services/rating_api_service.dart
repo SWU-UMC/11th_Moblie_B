@@ -84,7 +84,10 @@ String writeErrorMessage(DioException error) {
 /// code는 문구가 아니라 다음 UI 행동(다시 조회할지)을 정하는 데만 씁니다.
 /// 403·404는 화면에 남은 목록이 서버 상태와 어긋났다는 뜻이므로 다시 조회해서 맞춥니다.
 /// 400(별점 범위)·409(중복 등록)는 값만 고치면 되므로 다시 조회하지 않습니다.
+/// body를 공통 형식으로 읽지 못해도 HTTP status가 403·404면 다시 조회합니다.
 bool shouldRefreshAfterRatingError(DioException error) {
+  final status = error.response?.statusCode;
+  if (status == 403 || status == 404) return true;
   final code = CommonResponse.tryParseError(error.response?.data)?.code;
   return code == 'COMMON403' || code == 'COMMON404';
 }

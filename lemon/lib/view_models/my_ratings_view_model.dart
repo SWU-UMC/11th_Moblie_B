@@ -8,6 +8,19 @@ import '../data/services/tmdb_movie_service.dart';
 
 enum MyRatingsLoadStatus { idle, loading, success, empty, error }
 
+/// 선택 삭제 결과입니다. 실패한 항목은 서버 message를 함께 돌려줍니다.
+class BulkDeleteResult {
+  const BulkDeleteResult({
+    this.deleted = 0,
+    this.failed = 0,
+    this.messages = const [],
+  });
+
+  final int deleted;
+  final int failed;
+  final List<String> messages;
+}
+
 /// "내가 등록한 평점" 화면의 평점 목록과 TMDB 영화 정보를 함께 관리합니다.
 /// 조회·수정·삭제는 이 화면에서만 합니다. (등록은 영화 상세 화면)
 class MyRatingsViewModel extends ChangeNotifier {
@@ -165,21 +178,33 @@ class MyRatingsViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 선택한 평점을 하나씩 지웁니다. 실패한 항목은 선택 상태로 남기고, 실패 개수를 돌려줍니다.
+  /// 선택한 평점을 하나씩 지웁니다. 실패한 항목은 선택 상태로 남기고 나머지를 계속 처리합니다.
   /// 확인 Dialog가 닫힌 뒤 시작하며, 진행 중에는 화면이 로딩 오버레이로 이탈을 막습니다.
-  Future<int> deleteSelectedRatings() async {
-    if (isDeletingSelected || selectedRatingIds.isEmpty) return 0;
+  Future<BulkDeleteResult> deleteSelectedRatings() async {
+    if (isDeletingSelected || selectedRatingIds.isEmpty) {
+      return const BulkDeleteResult();
+    }
     isDeletingSelected = true;
     notifyListeners();
-    var failed = 0;
+    var deleted = 0;
+    final messages = <String>[];
+    // 403·404나 예상 밖 응답은 화면 목록이 서버와 어긋났을 수 있어 다시 조회해 맞춥니다.
+    var needsSync = false;
     try {
       for (final ratingId in selectedRatingIds.toList()) {
         try {
           await _service.deleteRating(memberId: memberId, ratingId: ratingId);
           selectedRatingIds.remove(ratingId);
+          deleted++;
         } on DioException catch (error) {
           debugPrint('평점 $ratingId 삭제 실패: ${error.response?.statusCode}');
-          failed++;
+          messages.add(writeErrorMessage(error));
+          if (shouldRefreshAfterRatingError(error)) needsSync = true;
+        } catch (error) {
+          // 204가 아닌 응답 등 예상 밖 결과도 이 항목만 실패로 두고 다음 항목을 계속 지웁니다.
+          debugPrint('평점 $ratingId 삭제 결과 확인 실패: $error');
+          messages.add('삭제 결과를 확인하지 못했습니다.');
+          needsSync = true;
         }
       }
     } finally {
@@ -187,10 +212,21 @@ class MyRatingsViewModel extends ChangeNotifier {
       // 예상하지 못한 오류에도 로딩을 해제합니다.
       if (!_disposed) notifyListeners();
     }
-    if (_disposed) return failed;
+    final result = BulkDeleteResult(
+      deleted: deleted,
+      failed: messages.length,
+      messages: messages,
+    );
+    if (_disposed) return result;
     if (selectedRatingIds.isEmpty) isSelecting = false;
-    await _refreshAfterWrite(); // GET 실패는 삭제 성공 여부와 분리합니다.
-    return failed;
+    if (deleted > 0) {
+      // 하나라도 지웠다면 GET 실패는 삭제 성공과 분리해 안내합니다.
+      await _refreshAfterWrite();
+    } else if (needsSync) {
+      // 지운 것이 없으므로 "저장은 완료됐지만" 안내 없이 목록만 맞춥니다.
+      await load();
+    }
+    return result;
   }
 
   /// 영화 조회가 실패해도 평점 목록은 지우지 않습니다.

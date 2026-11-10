@@ -21,7 +21,8 @@ class LoadingOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        child,
+        // 막 뒤의 버튼을 키보드(Tab·Enter)로도 누를 수 없게 포커스를 막습니다.
+        ExcludeFocus(excluding: isLoading, child: child),
         if (isLoading)
           const ModalBarrier(dismissible: false, color: Colors.black45),
         if (isLoading)

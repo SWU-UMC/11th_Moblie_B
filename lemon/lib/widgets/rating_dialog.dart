@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/models/rating_request.dart';
 import '../data/services/rating_api_service.dart';
@@ -35,6 +36,9 @@ class RatingDialog extends StatefulWidget {
 
   static const maxCommentLength = 500;
 
+  /// 서버는 이모지도 한 글자로 셉니다(코드포인트 기준). 카운터·입력 제한·제출 검사를 모두 이 기준으로 맞춥니다.
+  static int commentLength(String text) => text.runes.length;
+
   @override
   State<RatingDialog> createState() => _RatingDialogState();
 }
@@ -54,8 +58,10 @@ class _RatingDialogState extends State<RatingDialog> {
   }
 
   Future<void> _onConfirm() async {
+    // 버튼이 다시 그려지기 전에 두 번 눌려도 저장은 한 번만 시작합니다.
+    if (_isSubmitting) return;
     final trimmed = _commentController.text.trim();
-    if (trimmed.length > RatingDialog.maxCommentLength) {
+    if (RatingDialog.commentLength(trimmed) > RatingDialog.maxCommentLength) {
       setState(() => _errorText = '코멘트는 500자 이하로 입력해 주세요.');
       return;
     }
@@ -146,10 +152,16 @@ class _RatingDialogState extends State<RatingDialog> {
                   enabled: !_isSubmitting,
                   minLines: 3,
                   maxLines: 5,
-                  maxLength: RatingDialog.maxCommentLength,
+                  inputFormatters: const [
+                    _MaxRunesFormatter(RatingDialog.maxCommentLength),
+                  ],
+                  onChanged: (_) => setState(() {}),
                   textInputAction: TextInputAction.newline,
                   decoration: InputDecoration(
                     hintText: '이 영화의 인상적인 장면은...',
+                    counterText:
+                        '${RatingDialog.commentLength(_commentController.text)}'
+                        '/${RatingDialog.maxCommentLength}',
                     filled: true,
                     fillColor: colors.surfaceContainerLow,
                     contentPadding: const EdgeInsets.all(16),
@@ -212,4 +224,17 @@ class _RatingDialogState extends State<RatingDialog> {
       ),
     );
   }
+}
+
+/// 코드포인트 기준으로 최대 길이를 넘는 입력을 막습니다. (붙여넣기 포함)
+class _MaxRunesFormatter extends TextInputFormatter {
+  const _MaxRunesFormatter(this.max);
+
+  final int max;
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) => RatingDialog.commentLength(newValue.text) <= max ? newValue : oldValue;
 }

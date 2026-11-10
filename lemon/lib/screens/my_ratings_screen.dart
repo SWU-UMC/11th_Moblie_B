@@ -216,13 +216,15 @@ class MyRatingsScreen extends StatelessWidget {
     );
     if (confirmed != true || !context.mounted) return;
 
-    final failed = await viewModel.deleteSelectedRatings();
+    final result = await viewModel.deleteSelectedRatings();
     if (!context.mounted) return;
     _showSnackBar(
       context,
-      failed == 0
+      result.failed == 0
           ? '평점 $count개를 삭제했습니다.'
-          : '$failed개 항목을 삭제하지 못했습니다. 선택된 항목을 다시 확인해 주세요.',
+          // 권한(403)·없음(404)·통신 실패를 구분할 수 있도록 서버 message를 함께 보여줍니다.
+          : '${result.failed}개 항목을 삭제하지 못했습니다: '
+                '${result.messages.toSet().join(' / ')}',
     );
   }
 
@@ -455,25 +457,19 @@ class _CardActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      label: semanticsLabel,
-      button: true,
-      excludeSemantics: true,
-      child: TextButton(
-        onPressed: onPressed,
-        style: TextButton.styleFrom(
-          backgroundColor: background,
-          foregroundColor: foreground,
-          minimumSize: const Size(64, 36),
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          textStyle: Theme.of(context).textTheme.labelLarge
-              ?.copyWith(fontWeight: FontWeight.bold),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-        child: Text(label),
+    // TextButton의 탭 동작은 그대로 두고, 읽어 주는 문구만 바꿉니다.
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        backgroundColor: background,
+        foregroundColor: foreground,
+        minimumSize: const Size(64, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        textStyle: Theme.of(context).textTheme.labelLarge
+            ?.copyWith(fontWeight: FontWeight.bold),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
+      child: Text(label, semanticsLabel: semanticsLabel),
     );
   }
 }

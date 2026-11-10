@@ -859,12 +859,228 @@ void main() {
         isFalse,
       );
       expect(ratingService.deletes, [(42, 1), (42, 2)]);
+      // 삭제가 끝난 뒤 서버 목록을 다시 조회합니다.
+      expect(ratingService.log, ['GET', 'DELETE 1', 'DELETE 2', 'GET']);
       expect(find.text('파이트 클럽 · 별점 5'), findsNothing);
       // 실패한 항목은 선택 상태로 남습니다.
       expect(find.text('1개 선택됨'), findsOneWidget);
+      expect(find.text('1개 항목을 삭제하지 못했습니다: 존재하지 않는 평점입니다.'), findsOneWidget);
+    });
+  });
+
+  group('CodeRabbit review fixes', () {
+    test('403/404 refresh even without a common body', () {
       expect(
-        find.text('1개 항목을 삭제하지 못했습니다. 선택된 항목을 다시 확인해 주세요.'),
-        findsOneWidget,
+        shouldRefreshAfterRatingError(fakeDioError('/v6', statusCode: 404)),
+        isTrue,
+      );
+      expect(
+        shouldRefreshAfterRatingError(fakeDioError('/v6', statusCode: 403)),
+        isTrue,
+      );
+      expect(
+        shouldRefreshAfterRatingError(fakeDioError('/v6', statusCode: 500)),
+        isFalse,
+      );
+    });
+
+    Future<void> pumpRatingDialog(
+      WidgetTester tester, {
+      required List<(int, String?)> submits,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showDialog<bool>(
+                  context: context,
+                  builder: (_) => RatingDialog(
+                    onSubmit: (score, comment) async =>
+                        submits.add((score, comment)),
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('stars stay on one row on a 320px screen', (tester) async {
+      tester.view.physicalSize = const Size(960, 2000);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      final submits = <(int, String?)>[];
+      await pumpRatingDialog(tester, submits: submits);
+
+      final stars = emptyStars();
+      expect(stars, findsNWidgets(5));
+      final rows = {
+        for (var i = 0; i < 5; i++) tester.getCenter(stars.at(i)).dy.round(),
+      };
+      expect(rows, hasLength(1));
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(stars.last);
+      await tester.pump();
+      await tester.tap(dialogButton('확인'));
+      await tester.pumpAndSettle();
+      expect(submits, [(5, null)]);
+    });
+
+    testWidgets('emoji comment is counted like the server', (tester) async {
+      useTallScreen(tester);
+      final submits = <(int, String?)>[];
+      await pumpRatingDialog(tester, submits: submits);
+      final comment = '🎥' * 251;
+
+      await tester.tap(emptyStars().at(2));
+      await tester.enterText(commentField(), comment);
+      await tester.pump();
+      expect(find.text('251/500'), findsOneWidget);
+
+      await tester.tap(dialogButton('확인'));
+      await tester.pumpAndSettle();
+      expect(submits, [(3, comment)]);
+
+      // 501자를 넘는 입력은 막습니다.
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(commentField(), '🎥' * 501);
+      await tester.pump();
+      expect(find.text('0/500'), findsOneWidget);
+    });
+
+    testWidgets('card buttons keep their tap action for screen readers', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      useTallScreen(tester);
+      await tester.pumpWidget(
+        MovieLogApp(
+          router: createAppRouter(initialLocation: '/my/ratings'),
+          movieService: FakeMovieLookupService(
+            movies: {550: fakeMovie(550, '파이트 클럽')},
+          ),
+          signUpService: FakeSignUpService(),
+          ratingApiService: FakeRatingApiService(
+            (_) async => [fakeRating(1, 550, 5)],
+          ),
+          initialMemberId: 42,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      for (final label in ['파이트 클럽 평점 수정', '파이트 클럽 평점 삭제']) {
+        expect(
+          tester.getSemantics(find.bySemanticsLabel(label)),
+          isSemantics(label: label, isButton: true, hasTapAction: true),
+        );
+      }
+      semantics.dispose();
+    });
+
+    testWidgets('another movie id gets a fresh detail screen', (tester) async {
+      useTallScreen(tester);
+      final router = createAppRouter(initialLocation: '/movies/550');
+      await tester.pumpWidget(
+        MovieLogApp(
+          router: router,
+          movieService: FakeMovieLookupService(
+            movies: {
+              550: fakeMovie(550, '파이트 클럽'),
+              13: fakeMovie(13, '포레스트 검프'),
+            },
+          ),
+          signUpService: FakeSignUpService(),
+          ratingApiService: FakeRatingApiService((_) async => const []),
+          initialMemberId: 42,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('파이트 클럽'), findsOneWidget);
+
+      router.go('/movies/13');
+      await tester.pumpAndSettle();
+      expect(find.text('포레스트 검프'), findsOneWidget);
+      expect(find.text('파이트 클럽'), findsNothing);
+    });
+
+    group('bulk delete outcomes', () {
+      late FakeRatingApiService service;
+      late List<RatingDto> store;
+
+      MyRatingsViewModel viewModel() =>
+          MyRatingsViewModel(service, FakeMovieLookupService(), 42);
+
+      setUp(() {
+        store = [fakeRating(1, 550, 5), fakeRating(2, 13, 4)];
+        service = FakeRatingApiService((_) async => List.of(store));
+      });
+
+      test('an unexpected response does not stop the batch', () async {
+        service.onDelete = (ratingId) async {
+          if (ratingId == 1) throw StateError('예상하지 못한 삭제 응답: 200');
+          store.removeWhere((r) => r.ratingId == ratingId);
+        };
+        final vm = viewModel();
+        await vm.load();
+        vm
+          ..startSelection()
+          ..toggleSelection(1)
+          ..toggleSelection(2);
+
+        final result = await vm.deleteSelectedRatings();
+        expect(result.deleted, 1);
+        expect(result.failed, 1);
+        expect(service.log, ['GET', 'DELETE 1', 'DELETE 2', 'GET']);
+        expect(vm.selectedRatingIds, {1});
+        expect(vm.isDeletingSelected, isFalse);
+      });
+
+      test('nothing deleted: no "saved" warning, no reload on network '
+          'failure', () async {
+        service.onDelete = (ratingId) async =>
+            throw fakeDioError('/v6/members/42/ratings/$ratingId');
+        final vm = viewModel();
+        await vm.load();
+        vm
+          ..startSelection()
+          ..toggleSelection(1);
+
+        final result = await vm.deleteSelectedRatings();
+        expect(result.deleted, 0);
+        expect(result.messages, ['요청에 실패했습니다. 잠시 후 다시 시도해 주세요.']);
+        expect(service.log, ['GET', 'DELETE 1']);
+        expect(vm.refreshWarning, isNull);
+        expect(vm.status, MyRatingsLoadStatus.success);
+      });
+
+      test(
+        'nothing deleted but 404: resync without a "saved" warning',
+        () async {
+          service.onDelete = (ratingId) async => throw fakeCommonError(
+            '/v6/members/42/ratings/$ratingId',
+            404,
+            'COMMON404',
+            '존재하지 않는 평점입니다.',
+          );
+          final vm = viewModel();
+          await vm.load();
+          vm
+            ..startSelection()
+            ..toggleSelection(1);
+
+          final result = await vm.deleteSelectedRatings();
+          expect(result.messages, ['존재하지 않는 평점입니다.']);
+          expect(service.log, ['GET', 'DELETE 1', 'GET']);
+          expect(vm.refreshWarning, isNull);
+        },
       );
     });
   });
