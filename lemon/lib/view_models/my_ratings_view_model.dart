@@ -6,17 +6,30 @@ import '../data/models/tmdb_movie_dto.dart';
 import '../data/services/rating_api_service.dart';
 import '../data/services/tmdb_movie_service.dart';
 
-/// 조회 대상 회원입니다. 로그인한 "내 계정"이 아니라 학습용 샘플 데이터입니다.
-const int sampleMemberId = 1;
-
 enum MyRatingsLoadStatus { idle, loading, success, empty, error }
 
+/// 선택 삭제 결과입니다. 실패한 항목은 서버 message를 함께 돌려줍니다.
+class BulkDeleteResult {
+  const BulkDeleteResult({
+    this.deleted = 0,
+    this.failed = 0,
+    this.messages = const [],
+  });
+
+  final int deleted;
+  final int failed;
+  final List<String> messages;
+}
+
 /// "내가 등록한 평점" 화면의 평점 목록과 TMDB 영화 정보를 함께 관리합니다.
+/// 조회·수정·삭제는 이 화면에서만 합니다. (등록은 영화 상세 화면)
 class MyRatingsViewModel extends ChangeNotifier {
   MyRatingsViewModel(this._service, this._movieService, this.memberId);
 
   final RatingApiService _service;
   final TmdbMovieService _movieService;
+
+  /// 회원가입으로 받은 학습용 회원입니다. 로그인 인증은 아닙니다.
   final int memberId;
 
   /// 같은 movieId는 한 번만 조회합니다. 없는 영화(404)는 null로 저장합니다.
@@ -30,7 +43,18 @@ class MyRatingsViewModel extends ChangeNotifier {
   /// Error 상태에서는 오류 문구, Success 상태에서는 영화 정보 일부 누락 안내입니다.
   String? message;
 
+  /// 저장(수정·삭제)은 성공했지만 그 뒤 목록 GET만 실패했을 때의 안내입니다.
+  /// 저장 실패와 구분해, 저장을 다시 하지 않고 조회만 다시 시도하게 합니다.
+  String? refreshWarning;
+
+  /// 다중 삭제(Challenge)용 선택 상태입니다.
+  bool isSelecting = false;
+  final Set<int> selectedRatingIds = {};
+  bool isDeletingSelected = false;
+
   Future<void> load() async {
+    // 화면을 벗어난 뒤에는 새 요청도, 이전 요청 결과 반영도 하지 않습니다.
+    if (_disposed) return;
     final version = ++_requestVersion;
     status = MyRatingsLoadStatus.loading;
     message = null;
@@ -53,6 +77,12 @@ class MyRatingsViewModel extends ChangeNotifier {
           RatingWithMovie(rating: rating, movie: _movieCache[rating.movieId]),
       ];
       ratings = entries;
+      refreshWarning = null;
+      // 이미 사라진 평점은 선택에서도 뺍니다.
+      selectedRatingIds.removeWhere(
+        (id) => !entries.any((entry) => entry.rating.ratingId == id),
+      );
+      if (entries.isEmpty) isSelecting = false;
       status = entries.isEmpty
           ? MyRatingsLoadStatus.empty
           : MyRatingsLoadStatus.success;
@@ -72,6 +102,131 @@ class MyRatingsViewModel extends ChangeNotifier {
     }
 
     if (!_disposed && version == _requestVersion) notifyListeners();
+  }
+
+  /// 쓰기 성공 뒤 목록을 다시 읽습니다. GET 실패는 저장 실패로 다시 던지지 않습니다.
+  Future<void> _refreshAfterWrite() async {
+    if (_disposed) return;
+    await load();
+    if (_disposed) return;
+    if (status == MyRatingsLoadStatus.error) {
+      refreshWarning = '저장은 완료됐지만 목록을 불러오지 못했습니다. 조회만 다시 시도해 주세요.';
+      notifyListeners();
+    }
+  }
+
+  /// 쓰기 실패를 Dialog가 보여줄 문구로 바꿔 던집니다.
+  /// 403·404는 화면 목록이 서버와 어긋났다는 뜻이므로 다시 조회해 맞춥니다.
+  Future<Never> _failWrite(DioException error) async {
+    if (!_disposed && shouldRefreshAfterRatingError(error)) await load();
+    throw RatingWriteFailure(writeErrorMessage(error));
+  }
+
+  /// 수정 API가 성공한 뒤에만 목록을 다시 읽습니다.
+  /// comment가 null이면 서버의 기존 후기도 null로 바뀝니다. (전체 교체)
+  Future<void> updateRating({
+    required int ratingId,
+    required int score,
+    String? comment,
+  }) async {
+    try {
+      await _service.updateRating(
+        memberId: memberId,
+        ratingId: ratingId,
+        score: score,
+        comment: comment,
+      );
+    } on DioException catch (error) {
+      await _failWrite(error); // 쓰기 실패일 때만 Dialog가 실패로 처리합니다.
+    }
+    await _refreshAfterWrite();
+  }
+
+  /// 삭제 API(204)가 성공한 뒤에만 목록을 다시 읽습니다.
+  Future<void> deleteRating(int ratingId) async {
+    try {
+      await _service.deleteRating(memberId: memberId, ratingId: ratingId);
+    } on DioException catch (error) {
+      await _failWrite(error);
+    }
+    selectedRatingIds.remove(ratingId);
+    await _refreshAfterWrite();
+  }
+
+  @override
+  void notifyListeners() {
+    // 쓰기 요청이 끝나기 전에 화면이 사라져도 dispose된 ViewModel을 건드리지 않습니다.
+    if (!_disposed) super.notifyListeners();
+  }
+
+  void startSelection() {
+    if (ratings.isEmpty || isDeletingSelected) return;
+    isSelecting = true;
+    notifyListeners();
+  }
+
+  void cancelSelection() {
+    if (isDeletingSelected) return;
+    isSelecting = false;
+    selectedRatingIds.clear();
+    notifyListeners();
+  }
+
+  void toggleSelection(int ratingId) {
+    if (isDeletingSelected) return;
+    if (!selectedRatingIds.remove(ratingId)) selectedRatingIds.add(ratingId);
+    notifyListeners();
+  }
+
+  /// 선택한 평점을 하나씩 지웁니다. 실패한 항목은 선택 상태로 남기고 나머지를 계속 처리합니다.
+  /// 확인 Dialog가 닫힌 뒤 시작하며, 진행 중에는 화면이 로딩 오버레이로 이탈을 막습니다.
+  Future<BulkDeleteResult> deleteSelectedRatings() async {
+    if (isDeletingSelected || selectedRatingIds.isEmpty) {
+      return const BulkDeleteResult();
+    }
+    isDeletingSelected = true;
+    notifyListeners();
+    var deleted = 0;
+    final messages = <String>[];
+    // 403·404나 예상 밖 응답은 화면 목록이 서버와 어긋났을 수 있어 다시 조회해 맞춥니다.
+    var needsSync = false;
+    try {
+      for (final ratingId in selectedRatingIds.toList()) {
+        try {
+          await _service.deleteRating(memberId: memberId, ratingId: ratingId);
+          selectedRatingIds.remove(ratingId);
+          deleted++;
+        } on DioException catch (error) {
+          debugPrint('평점 $ratingId 삭제 실패: ${error.response?.statusCode}');
+          messages.add(writeErrorMessage(error));
+          if (shouldRefreshAfterRatingError(error)) needsSync = true;
+        } catch (error) {
+          // 204가 아닌 응답 등 예상 밖 결과도 이 항목만 실패로 두고 다음 항목을 계속 지웁니다.
+          debugPrint('평점 $ratingId 삭제 결과 확인 실패: $error');
+          messages.add('삭제 결과를 확인하지 못했습니다.');
+          needsSync = true;
+        }
+      }
+    } finally {
+      isDeletingSelected = false;
+      // 예상하지 못한 오류에도 로딩을 해제합니다.
+      if (!_disposed) notifyListeners();
+    }
+    final result = BulkDeleteResult(
+      deleted: deleted,
+      failed: messages.length,
+      messages: messages,
+    );
+    if (_disposed) return result;
+    if (selectedRatingIds.isEmpty) isSelecting = false;
+    if (deleted > 0) {
+      // 하나라도 지웠다면 GET 실패는 삭제 성공과 분리해 안내합니다.
+      await _refreshAfterWrite();
+    } else if (needsSync) {
+      // 지운 것이 없으므로 "저장은 완료됐지만" 안내 없이 목록만 맞춥니다.
+      await load();
+    }
+    return result;
   }
 
   /// 영화 조회가 실패해도 평점 목록은 지우지 않습니다.

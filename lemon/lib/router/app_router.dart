@@ -1,21 +1,22 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../data/models/tmdb_movie_dto.dart';
-import '../data/services/member_check_service.dart';
 import '../data/services/rating_api_service.dart';
+import '../data/services/sign_up_service.dart';
 import '../data/services/tmdb_movie_service.dart';
 
 import '../screens/button_demo_screen.dart';
 import '../screens/home_screen.dart';
-import '../screens/movie_detail_screen.dart';
+import '../screens/movie_detail_loader.dart';
 import '../screens/movies_screen.dart';
 import '../screens/my_ratings_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/signup_screen.dart';
 import '../screens/start_screen.dart';
+import '../view_models/learning_member_session.dart';
 import '../view_models/movie_home_view_model.dart';
 import '../view_models/movie_list_view_model.dart';
 import '../view_models/my_ratings_view_model.dart';
@@ -36,8 +37,7 @@ GoRouter createAppRouter({String initialLocation = '/'}) {
       GoRoute(
         path: '/signup',
         builder: (context, state) => ChangeNotifierProvider<SignUpViewModel>(
-          create: (context) =>
-              SignUpViewModel(context.read<MemberCheckService>()),
+          create: (context) => SignUpViewModel(context.read<SignUpService>()),
           child: const SignupScreen(),
         ),
       ),
@@ -85,15 +85,19 @@ GoRouter createAppRouter({String initialLocation = '/'}) {
                     path: 'ratings', // 최종 경로: /my/ratings
                     // root Navigator 위에 표시해 하단 NavigationBar를 가립니다.
                     parentNavigatorKey: rootNavigatorKey,
-                    builder: (context, state) =>
-                        ChangeNotifierProvider<MyRatingsViewModel>(
-                          create: (context) => MyRatingsViewModel(
-                            context.read<RatingApiService>(),
-                            context.read<TmdbMovieService>(),
-                            sampleMemberId, // 6주차는 학습용 memberId 1입니다.
-                          )..load(),
-                          child: const MyRatingsScreen(),
-                        ),
+                    builder: (context, state) {
+                      // 6주차 고정 memberId 1 대신 회원가입으로 받은 학습용 회원을 씁니다.
+                      final id = context.read<LearningMemberSession>().memberId;
+                      if (id == null) return const _SignUpRequiredScreen();
+                      return ChangeNotifierProvider<MyRatingsViewModel>(
+                        create: (context) => MyRatingsViewModel(
+                          context.read<RatingApiService>(),
+                          context.read<TmdbMovieService>(),
+                          id,
+                        )..load(),
+                        child: const MyRatingsScreen(),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -110,15 +114,54 @@ GoRouter createAppRouter({String initialLocation = '/'}) {
       // 상세 화면은 NavigationBar 없이 전체 화면으로 쌓이도록 Shell 밖에 둡니다.
       GoRoute(
         path: '/movies/:movieId',
-        // 목록에서 넘긴 TMDB 영화는 extra로 받고, 없으면 mock 영화에서 찾습니다.
-        builder: (context, state) => MovieDetailScreen(
-          movieId: state.pathParameters['movieId']!,
-          tmdbMovie: switch (state.extra) {
-            final TmdbMovieDto movie => movie,
-            _ => null,
-          },
-        ),
+        // movieId는 URL 식별자로만 쓰고, 화면에 넘길 TMDB 영화는 extra에서 꺼냅니다.
+        // extra가 없거나(직접 접근·Deep Link) id가 다르면 Loader가 TMDB에서 다시 조회합니다.
+        builder: (context, state) {
+          final movieId = state.pathParameters['movieId']!;
+          final extra = state.extra;
+          return MovieDetailLoader(
+            // 다른 영화로 바뀌면 이전 영화의 상태·ViewModel을 재사용하지 않도록 새로 만듭니다.
+            key: ValueKey(movieId),
+            movieId: movieId,
+            initialMovie: extra is TmdbMovieDto && '${extra.id}' == movieId
+                ? extra
+                : null,
+          );
+        },
       ),
     ],
   );
+}
+
+/// 학습용 회원가입 전에 "내가 등록한 평점"을 열었을 때의 안내 화면입니다.
+class _SignUpRequiredScreen extends StatelessWidget {
+  const _SignUpRequiredScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        centerTitle: true,
+        title: const Text('내가 등록한 평점'),
+        leading: IconButton(
+          tooltip: '뒤로 가기',
+          onPressed: () => context.pop(),
+          icon: const Icon(Icons.arrow_back),
+        ),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('학습용 회원가입이 필요합니다.'),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => context.go('/signup'),
+              child: const Text('회원가입하러 가기'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
