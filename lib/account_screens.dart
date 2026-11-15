@@ -1,10 +1,14 @@
+import 'data/models/create_member_request.dart';
+import 'view_models/learning_member_session.dart';
+import 'view_models/submit_status.dart';
+
 import 'package:provider/provider.dart';
 
 import 'view_models/sign_up_view_model.dart';
 import 'widgets/movielog_button.dart';
 
 // 대화에서 완성한 2주차 입력 검증 구조를 재사용한 화면입니다.
-// 중복 여부만 조회하며 실제 회원가입 POST는 보내지 않습니다.
+// v6 회원가입 결과를 학습용 메모리 세션에 전달합니다.
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -65,7 +69,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   String? validateNickname(String? value) {
     final text = value?.trim() ?? '';
     if (text.isEmpty) return '닉네임을 입력해주세요.';
-    if (text.length < 2) return '닉네임은 2자 이상이어야 합니다.';
+    if (text.length < 2 || text.length > 12) return '닉네임은 2~12자여야 합니다.';
     return null;
   }
 
@@ -79,11 +83,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
   String? validatePassword(String? value) {
     final text = value ?? '';
     if (text.isEmpty) return '비밀번호를 입력해주세요.';
-    if (text.length < 8) return '비밀번호는 8자 이상이어야 합니다.';
+    if (!RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).{8,}$')
+        .hasMatch(text)) {
+      return '대문자·소문자·숫자·특수문자(!@#\$%^&*)를 포함한 8자 이상이어야 합니다.';
+    }
     return null;
   }
 
-  void submitForm() {
+  Future<void> submitForm() async {
     setState(() {
       nicknameEdited = true;
       emailEdited = true;
@@ -97,8 +104,24 @@ class _SignUpScreenState extends State<SignUpScreen> {
     final valid = formKey.currentState?.validate() ?? false;
     if (!valid || !agreedToTerms) return;
     FocusScope.of(context).unfocus();
-    // 3주차 변경점: 검증 완료 후 홈으로 이동합니다.
-    context.go('/home');
+    await vm.submit(
+      CreateMemberRequest(
+        email: emailController.text,
+        password: passwordController.text,
+        nickname: nicknameController.text,
+      ),
+    );
+    if (!mounted) return;
+    if (vm.submitStatus == SubmitStatus.success && vm.createdMemberId != null) {
+      context.read<LearningMemberSession>().setMemberId(vm.createdMemberId!);
+      passwordController.clear();
+      context.go('/movies');
+      return;
+    }
+    if (vm.snackbarMessage != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(vm.snackbarMessage!)));
+    }
   }
 
   @override
@@ -123,201 +146,224 @@ class _SignUpScreenState extends State<SignUpScreen> {
         passwordValid &&
         agreedToTerms &&
         vm.nicknameCheckStatus == CheckStatus.available &&
-        vm.emailCheckStatus == CheckStatus.available;
+        vm.emailCheckStatus == CheckStatus.available &&
+        vm.submitStatus != SubmitStatus.submitting;
     final theme = Theme.of(context);
 
-    return Scaffold(
-      resizeToAvoidBottomInset: true,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                  child: Form(
-                    key: formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
+    return PopScope(
+      canPop: vm.submitStatus != SubmitStatus.submitting,
+      child: Scaffold(
+        resizeToAvoidBottomInset: true,
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    child: AbsorbPointer(
+                      absorbing: vm.submitStatus == SubmitStatus.submitting,
+                      child: Form(
+                        key: formKey,
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // 3주차는 회원가입 화면에 뒤로가기 버튼을 두지 않습니다.
-                            Text(
-                              '회원가입',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.headlineLarge,
-                            ),
-                            const SizedBox(height: 32),
-                            Text(
-                              '환영합니다!\n간단한 정보만 입력하고 시작해보세요.',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyLarge,
-                            ),
-                            const SizedBox(height: 40),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                Expanded(
-                                  child: SignUpInputField(
-                                    label: '닉네임',
-                                    hintText: '닉네임을 입력해주세요',
-                                    controller: nicknameController,
-                                    edited: nicknameEdited,
-                                    isValid:
-                                        vm.nicknameCheckStatus ==
-                                        CheckStatus.available,
-                                    errorText: vm.nicknameErrorText,
-                                    validator: validateNickname,
-                                    textInputAction: TextInputAction.next,
-                                    onChanged: (value) {
-                                      vm.onNicknameChanged(value);
-                                      setState(() => nicknameEdited = true);
-                                    },
-                                    onFieldSubmitted: (_) =>
-                                        emailNode.requestFocus(),
-                                  ),
+                                // 3주차는 회원가입 화면에 뒤로가기 버튼을 두지 않습니다.
+                                Text(
+                                  '회원가입',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.headlineLarge,
                                 ),
-                                const SizedBox(width: 8),
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 30),
-                                  child: MovieLogButton(
-                                    label: '중복 확인',
-                                    isLoading:
-                                        vm.nicknameCheckStatus ==
-                                        CheckStatus.checking,
-                                    onPressed: vm.canCheckNickname
-                                        ? () => vm.checkNickname(
-                                            nicknameController.text,
-                                          )
-                                        : null,
+                                const SizedBox(height: 32),
+                                Text(
+                                  '환영합니다!\n간단한 정보만 입력하고 시작해보세요.',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodyLarge,
+                                ),
+                                const SizedBox(height: 40),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: SignUpInputField(
+                                        label: '닉네임',
+                                        hintText: '닉네임을 입력해주세요',
+                                        controller: nicknameController,
+                                        edited: nicknameEdited,
+                                        isValid:
+                                            vm.nicknameCheckStatus ==
+                                            CheckStatus.available,
+                                        errorText: vm.nicknameErrorText,
+                                        validator: validateNickname,
+                                        textInputAction: TextInputAction.next,
+                                        onChanged: (value) {
+                                          vm.onNicknameChanged(value);
+                                          setState(() => nicknameEdited = true);
+                                        },
+                                        onFieldSubmitted: (_) =>
+                                            emailNode.requestFocus(),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 30),
+                                      child: MovieLogButton(
+                                        label: '중복 확인',
+                                        isLoading:
+                                            vm.nicknameCheckStatus ==
+                                            CheckStatus.checking,
+                                        onPressed: vm.canCheckNickname
+                                            ? () => vm.checkNickname(
+                                                nicknameController.text,
+                                              )
+                                            : null,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (vm.nicknameCheckStatus ==
+                                    CheckStatus.available)
+                                  const Text(
+                                    '사용할 수 있는 닉네임입니다.',
+                                    style: TextStyle(color: Colors.green),
                                   ),
+                                if (vm.nicknameCheckStatus ==
+                                    CheckStatus.checking)
+                                  const Text('닉네임 사용 가능 여부를 확인 중입니다.'),
+                                const SizedBox(height: 20),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: SignUpInputField(
+                                        label: '이메일',
+                                        hintText: '이메일 주소를 입력해주세요',
+                                        controller: emailController,
+                                        focusNode: emailNode,
+                                        edited: emailEdited,
+                                        isValid:
+                                            vm.emailCheckStatus ==
+                                            CheckStatus.available,
+                                        errorText: vm.emailErrorText,
+                                        validator: validateEmail,
+                                        keyboardType:
+                                            TextInputType.emailAddress,
+                                        textInputAction: TextInputAction.next,
+                                        onChanged: (value) {
+                                          vm.onEmailChanged(value);
+                                          setState(() => emailEdited = true);
+                                        },
+                                        onFieldSubmitted: (_) =>
+                                            passwordNode.requestFocus(),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 30),
+                                      child: MovieLogButton(
+                                        label: '중복 확인',
+                                        isLoading:
+                                            vm.emailCheckStatus ==
+                                            CheckStatus.checking,
+                                        onPressed: vm.canCheckEmail
+                                            ? () => vm.checkEmail(
+                                                emailController.text,
+                                              )
+                                            : null,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (vm.emailCheckStatus ==
+                                    CheckStatus.available)
+                                  const Text(
+                                    '사용할 수 있는 이메일입니다.',
+                                    style: TextStyle(color: Colors.green),
+                                  ),
+                                if (vm.emailCheckStatus == CheckStatus.checking)
+                                  const Text('이메일 사용 가능 여부를 확인 중입니다.'),
+                                const SizedBox(height: 20),
+                                SignUpInputField(
+                                  label: '비밀번호',
+                                  hintText: '비밀번호를 입력해주세요',
+                                  controller: passwordController,
+                                  focusNode: passwordNode,
+                                  edited: passwordEdited,
+                                  isValid:
+                                      passwordValid &&
+                                      vm.passwordErrorText == null,
+                                  errorText: vm.passwordErrorText,
+                                  validator: validatePassword,
+                                  obscureText: true,
+                                  textInputAction: TextInputAction.done,
+                                  onChanged: (_) {
+                                    vm.onPasswordChanged();
+                                    setState(() => passwordEdited = true);
+                                  },
+                                  onFieldSubmitted: (_) =>
+                                      FocusScope.of(context).unfocus(),
                                 ),
                               ],
                             ),
-                            if (vm.nicknameCheckStatus == CheckStatus.available)
-                              const Text(
-                                '사용할 수 있는 닉네임입니다.',
-                                style: TextStyle(color: Colors.green),
-                              ),
-                            if (vm.nicknameCheckStatus == CheckStatus.checking)
-                              const Text('닉네임 사용 가능 여부를 확인 중입니다.'),
-                            const SizedBox(height: 20),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: SignUpInputField(
-                                    label: '이메일',
-                                    hintText: '이메일 주소를 입력해주세요',
-                                    controller: emailController,
-                                    focusNode: emailNode,
-                                    edited: emailEdited,
-                                    isValid:
-                                        vm.emailCheckStatus ==
-                                        CheckStatus.available,
-                                    errorText: vm.emailErrorText,
-                                    validator: validateEmail,
-                                    keyboardType: TextInputType.emailAddress,
-                                    textInputAction: TextInputAction.next,
-                                    onChanged: (value) {
-                                      vm.onEmailChanged(value);
-                                      setState(() => emailEdited = true);
-                                    },
-                                    onFieldSubmitted: (_) =>
-                                        passwordNode.requestFocus(),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 32),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Checkbox(
+                                        value: agreedToTerms,
+                                        onChanged: (value) => setState(
+                                          () => agreedToTerms = value ?? false,
+                                        ),
+                                      ),
+                                      const Expanded(
+                                        child: Text('필수 약관에 동의합니다'),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 30),
-                                  child: MovieLogButton(
-                                    label: '중복 확인',
+                                  const SizedBox(height: 16),
+                                  MovieLogButton(
+                                    label: '가입하기',
                                     isLoading:
-                                        vm.emailCheckStatus ==
-                                        CheckStatus.checking,
-                                    onPressed: vm.canCheckEmail
-                                        ? () => vm.checkEmail(
-                                            emailController.text,
-                                          )
-                                        : null,
+                                        vm.submitStatus ==
+                                        SubmitStatus.submitting,
+                                    width: double.infinity,
+                                    onPressed: canSubmit ? submitForm : null,
                                   ),
-                                ),
-                              ],
-                            ),
-                            if (vm.emailCheckStatus == CheckStatus.available)
-                              const Text(
-                                '사용할 수 있는 이메일입니다.',
-                                style: TextStyle(color: Colors.green),
+                                  const SizedBox(height: 24),
+                                  Wrap(
+                                    alignment: WrapAlignment.center,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      const Text('이미 계정이 있나요?'),
+                                      TextButton(
+                                        onPressed: null,
+                                        child: const Text('로그인'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
-                            if (vm.emailCheckStatus == CheckStatus.checking)
-                              const Text('이메일 사용 가능 여부를 확인 중입니다.'),
-                            const SizedBox(height: 20),
-                            SignUpInputField(
-                              label: '비밀번호',
-                              hintText: '비밀번호를 입력해주세요',
-                              controller: passwordController,
-                              focusNode: passwordNode,
-                              edited: passwordEdited,
-                              isValid: passwordValid,
-                              validator: validatePassword,
-                              obscureText: true,
-                              textInputAction: TextInputAction.done,
-                              onChanged: (_) =>
-                                  setState(() => passwordEdited = true),
-                              onFieldSubmitted: (_) =>
-                                  FocusScope.of(context).unfocus(),
                             ),
                           ],
                         ),
-                        Padding(
-                          padding: const EdgeInsets.only(top: 32),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Row(
-                                children: [
-                                  Checkbox(
-                                    value: agreedToTerms,
-                                    onChanged: (value) => setState(
-                                      () => agreedToTerms = value ?? false,
-                                    ),
-                                  ),
-                                  const Expanded(child: Text('필수 약관에 동의합니다')),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                              MovieLogButton(
-                                label: '가입하기',
-                                width: double.infinity,
-                                onPressed: canSubmit ? submitForm : null,
-                              ),
-                              const SizedBox(height: 24),
-                              Wrap(
-                                alignment: WrapAlignment.center,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  const Text('이미 계정이 있나요?'),
-                                  TextButton(
-                                    onPressed: null,
-                                    child: const Text('로그인'),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
