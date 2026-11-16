@@ -181,6 +181,8 @@ void main() {
     WidgetTester tester, {
     String initialLocation = '/',
     TmdbMovieService? service,
+    FakeRatingApiService? ratingService,
+    int? memberId,
   }) async {
     useTallScreen(tester);
     final router = createAppRouter(initialLocation: initialLocation);
@@ -188,8 +190,10 @@ void main() {
       MovieLogApp(
         router: router,
         movieService: service ?? _FakeTmdbMovieService(),
-        memberCheckService: FakeMemberCheckService(),
-        ratingApiService: FakeRatingApiService((_) async => const []),
+        signUpService: FakeSignUpService(),
+        ratingApiService:
+            ratingService ?? FakeRatingApiService((_) async => const []),
+        initialMemberId: memberId,
       ),
     );
     await tester.pumpAndSettle();
@@ -210,7 +214,7 @@ void main() {
     expect(find.widgetWithText(ElevatedButton, '시작하기'), findsOneWidget);
   });
 
-  testWidgets('Start -> Signup -> Home, and back is blocked', (
+  testWidgets('Start -> Signup -> Movies, and back is blocked', (
     WidgetTester tester,
   ) async {
     final router = await pumpApp(tester);
@@ -223,7 +227,7 @@ void main() {
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), '무비러버');
     await tester.enterText(fields.at(1), 'movie@example.com');
-    await tester.enterText(fields.at(2), 'password123');
+    await tester.enterText(fields.at(2), 'Movie123!');
     // 닉네임·이메일 모두 중복 확인을 마쳐야 가입할 수 있습니다.
     await tester.tap(find.text('중복 확인').at(0));
     await tester.pumpAndSettle();
@@ -234,13 +238,15 @@ void main() {
     await tester.tap(find.text('가입하기'));
     await tester.pumpAndSettle();
 
-    expect(find.text('오늘은 어떤\n영화를 볼까요?'), findsOneWidget);
+    // 가입에 성공하면 영화 목록으로 이동합니다.
+    expect(router.state.uri.path, '/movies');
+    expect(find.text('회원가입이 완료됐어요. (학습용 memberId 42)'), findsOneWidget);
     expect(router.canPop(), isFalse);
 
-    // 시스템 뒤로 가기를 눌러도 홈에 그대로 머뭅니다.
+    // 시스템 뒤로 가기를 눌러도 회원가입 화면으로 돌아가지 않습니다.
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
-    expect(find.text('오늘은 어떤\n영화를 볼까요?'), findsOneWidget);
+    expect(find.text('회원가입'), findsNothing);
   });
 
   testWidgets('Home featured card opens detail and returns back', (
@@ -335,31 +341,24 @@ void main() {
     );
   });
 
-  testWidgets('Detail rating dialog and favorite snackbar', (
+  testWidgets('Mock detail cannot save rating, favorite snackbar works', (
     WidgetTester tester,
   ) async {
-    await pumpApp(tester, initialLocation: '/movies/under-the-starlight');
-
-    await tester.tap(find.text('평점 남기기'));
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-
-    FilledButton saveButton() =>
-        tester.widget<FilledButton>(find.widgetWithText(FilledButton, '저장'));
-    expect(saveButton().onPressed, isNull);
-
-    final stars = find.descendant(
-      of: find.byType(AlertDialog),
-      matching: find.byIcon(Icons.star_rounded),
+    await pumpApp(
+      tester,
+      initialLocation: '/movies/under-the-starlight',
+      memberId: 42,
     );
-    await tester.tap(stars.last);
-    await tester.pumpAndSettle();
-    expect(saveButton().onPressed, isNotNull);
 
-    await tester.tap(find.text('저장'));
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.textContaining('점을 남겼어요.'), findsOneWidget);
+    // mock 영화는 TMDB id가 없어 평점 서버에 저장할 수 없습니다.
+    expect(find.text('샘플 영화는 평점을 저장할 수 없어요.'), findsOneWidget);
+    final rateButton = tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text('평점 남기기'),
+        matching: find.byType(FilledButton),
+      ),
+    );
+    expect(rateButton.onPressed, isNull);
 
     await tester.tap(find.text('즐겨찾기'));
     await tester.pumpAndSettle();
@@ -372,10 +371,16 @@ void main() {
     expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
   });
 
-  testWidgets('TMDB movie card passes its id to detail and rating dialog', (
+  testWidgets('TMDB movie card passes its id to detail and rating POST', (
     WidgetTester tester,
   ) async {
-    final router = await pumpApp(tester, initialLocation: '/movies');
+    final ratingService = FakeRatingApiService((_) async => const []);
+    final router = await pumpApp(
+      tester,
+      initialLocation: '/movies',
+      ratingService: ratingService,
+      memberId: 42,
+    );
 
     await tester.tap(find.text('드라마 영화'));
     await tester.pumpAndSettle();
@@ -386,26 +391,21 @@ void main() {
     // overview가 비어 있으면 안내 문구를 보여줍니다.
     expect(find.text('줄거리 정보가 없어요.'), findsOneWidget);
 
-    final logs = <String>[];
-    final originalDebugPrint = debugPrint;
-    debugPrint = (message, {wrapWidth}) => logs.add(message ?? '');
-    try {
-      await tester.tap(find.text('평점 남기기'));
-      await tester.pumpAndSettle();
-      final stars = find.descendant(
-        of: find.byType(AlertDialog),
-        matching: find.byIcon(Icons.star_rounded),
-      );
-      await tester.tap(stars.last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('저장'));
-      await tester.pumpAndSettle();
-    } finally {
-      // Flutter 테스트는 본문이 끝날 때 debugPrint가 원래대로인지 확인합니다.
-      debugPrint = originalDebugPrint;
-    }
+    await tester.tap(find.text('평점 남기기'));
+    await tester.pumpAndSettle();
+    final stars = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byIcon(Icons.star_outline_rounded),
+    );
+    await tester.tap(stars.last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('확인'));
+    await tester.pumpAndSettle();
 
-    expect(logs, contains(startsWith('[평점] movieId=2 ')));
+    // 영화 배열 index가 아니라 TMDB id가 movieId로 갑니다.
+    final (memberId, request) = ratingService.creates.single;
+    expect(memberId, 42);
+    expect(request.toJson(), {'movieId': 2, 'score': 5});
   });
 
   testWidgets('Detail opened by URL loads TMDB movie by id', (
@@ -470,7 +470,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.light,
         home: ChangeNotifierProvider(
-          create: (_) => SignUpViewModel(FakeMemberCheckService()),
+          create: (_) => SignUpViewModel(FakeSignUpService()),
           child: const SignupScreen(),
         ),
       ),
@@ -492,6 +492,12 @@ void main() {
       'movie@example.com',
     );
     await tester.enterText(find.byType(TextFormField).at(2), 'password123');
+    await tester.pump();
+    expect(
+      find.text('소문자·대문자·숫자·특수문자(!@#\$%^&*)를 하나 이상씩 넣어주세요.'),
+      findsOneWidget,
+    );
+    await tester.enterText(find.byType(TextFormField).at(2), 'Movie123!');
     await tester.tap(find.text('필수 약관에 동의합니다'));
     await tester.pump();
 

@@ -14,6 +14,8 @@ class MovieLogButton extends StatelessWidget {
     this.isLoading = false,
     this.width,
     this.height = 44,
+    this.tonal = false,
+    this.borderRadius = 12,
   });
 
   final String label;
@@ -27,6 +29,12 @@ class MovieLogButton extends StatelessWidget {
   /// null: 내용 기반 크기 · double.infinity: 부모가 허용하는 최대 너비 · 고정 값: 항상 같은 크기
   final double? width;
   final double height;
+
+  /// true면 연한 보라 배경 + 보라 글자입니다. Dialog의 "취소"처럼 보조 동작에 씁니다.
+  final bool tonal;
+
+  /// 기본은 12입니다. Dialog 버튼처럼 알약 모양이 필요하면 높이의 절반을 줍니다.
+  final double borderRadius;
 
   bool get _disabled => isLoading || onPressed == null;
 
@@ -54,25 +62,33 @@ class MovieLogButton extends StatelessWidget {
     return math.max(width, _minWidth);
   }
 
+  /// 보조(tonal) 버튼 배경색입니다.
+  static const _tonalBackground = Color(0xFFEDE8F7);
+
   @override
   Widget build(BuildContext context) {
+    final background = tonal ? _tonalBackground : AppColors.primary;
+    final foreground = tonal ? AppColors.primary : AppColors.white;
     return SizedBox(
       width: width,
       height: height,
       child: ElevatedButton(
         onPressed: _disabled ? null : onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.white,
-          // 통신 중은 회색, 조건 미충족은 흐린 보라색으로 구분합니다.
+          backgroundColor: background,
+          foregroundColor: foreground,
+          elevation: tonal ? 0 : null,
+          // 통신 중은 회색, 조건 미충족은 흐린 색으로 구분합니다.
           disabledBackgroundColor: isLoading
               ? AppColors.gray
-              : AppColors.primary.withValues(alpha: 0.4),
-          disabledForegroundColor: AppColors.white,
+              : background.withValues(alpha: 0.4),
+          disabledForegroundColor: isLoading
+              ? AppColors.white
+              : foreground.withValues(alpha: tonal ? 0.5 : 1),
           padding: const EdgeInsets.symmetric(horizontal: _horizontalPadding),
           textStyle: _labelStyle(context),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(borderRadius),
           ),
         ),
         // label과 인디케이터를 동시에 그리지 않고 하나만 그립니다.

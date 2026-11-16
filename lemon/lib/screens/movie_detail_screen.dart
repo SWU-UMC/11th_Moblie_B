@@ -1,78 +1,27 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../data/mock_movies.dart';
 import '../data/models/tmdb_movie_dto.dart';
-import '../data/services/tmdb_movie_service.dart';
+import '../data/services/rating_api_service.dart';
 import '../models/movie.dart';
-import '../widgets/movie_error_view.dart';
-import '../widgets/movie_rating_dialog.dart';
+import '../view_models/movie_detail_view_model.dart';
 import '../widgets/movielog_app_bar.dart';
+import '../widgets/rating_dialog.dart';
 import '../widgets/tmdb_poster_image.dart';
 
-class MovieDetailScreen extends StatefulWidget {
-  const MovieDetailScreen({super.key, required this.movieId, this.tmdbMovie});
+/// 상세 화면의 AppBar(뒤로 가기·공유)를 공통으로 씁니다. 로딩·오류 화면에서도 같은 모양입니다.
+class MovieDetailScaffold extends StatelessWidget {
+  const MovieDetailScaffold({
+    super.key,
+    required this.body,
+    this.bottomNavigationBar,
+  });
 
-  /// 경로의 영화 ID입니다. TMDB 영화는 TMDB id, 추천 카드는 mock id입니다.
-  final String movieId;
-
-  /// 목록에서 함께 넘긴 TMDB 영화입니다.
-  /// 없으면 mock 영화에서 찾고, mock에도 없으면 경로의 id로 TMDB에 요청합니다.
-  final TmdbMovieDto? tmdbMovie;
-
-  @override
-  State<MovieDetailScreen> createState() => _MovieDetailScreenState();
-}
-
-class _MovieDetailScreenState extends State<MovieDetailScreen> {
-  // 즐겨찾기와 내 평점은 서버 없이 화면 내부 상태로만 관리합니다.
-  bool _isFavorite = false;
-  double? _myRating;
-
-  // 주소로 바로 들어와 extra가 없을 때 TMDB에서 불러온 영화와 요청 상태입니다.
-  TmdbMovieDto? _loadedTmdbMovie;
-  bool _isLoadingTmdb = false;
-  bool _tmdbLoadFailed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.tmdbMovie == null && findMovieById(widget.movieId) == null) {
-      _loadTmdbMovie();
-    }
-  }
-
-  /// mock id는 문자열이므로 숫자 id일 때만 TMDB에 요청합니다.
-  void _loadTmdbMovie() {
-    final id = int.tryParse(widget.movieId);
-    if (id == null) return;
-    _isLoadingTmdb = true;
-    _tmdbLoadFailed = false;
-    context.read<TmdbMovieService>().fetchMovieDetail(id).then(
-      (movie) {
-        if (!mounted) return;
-        setState(() {
-          _loadedTmdbMovie = movie;
-          _isLoadingTmdb = false;
-        });
-      },
-      onError: (Object error) {
-        debugPrint('영화 상세 요청 실패: $error');
-        if (!mounted) return;
-        // 404는 재시도해도 같으므로 "찾을 수 없어요"를 보여줍니다.
-        final notFound =
-            error is DioException && error.response?.statusCode == 404;
-        setState(() {
-          _isLoadingTmdb = false;
-          _tmdbLoadFailed = !notFound;
-        });
-      },
-    );
-  }
+  final Widget body;
+  final Widget? bottomNavigationBar;
 
   void _goBack(BuildContext context) {
     if (context.canPop()) {
@@ -85,13 +34,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final tmdbMovie = widget.tmdbMovie ?? _loadedTmdbMovie;
-    final mockMovie = findMovieById(widget.movieId);
-    final movie = tmdbMovie != null
-        ? _DetailData.fromTmdb(tmdbMovie)
-        : mockMovie == null
-        ? null
-        : _DetailData.fromMock(mockMovie);
 
     return Scaffold(
       appBar: MovieLogAppBar(
@@ -118,23 +60,54 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           ),
         ],
       ),
-      body: movie != null
-          ? _MovieDetailBody(movie: movie, myRating: _myRating)
-          : _isLoadingTmdb
-          ? const Center(child: CircularProgressIndicator())
-          : _tmdbLoadFailed
-          ? MovieErrorView(
-              message: '영화 정보를 불러오지 못했어요',
-              onRetry: () => setState(_loadTmdbMovie),
-            )
-          : const Center(child: Text('영화 정보를 찾을 수 없어요.')),
-      bottomNavigationBar: movie == null
-          ? null
-          : _DetailActions(
-              isFavorite: _isFavorite,
-              onFavoritePressed: _toggleFavorite,
-              onRatePressed: () => _openRatingDialog(movie),
-            ),
+      body: body,
+      bottomNavigationBar: bottomNavigationBar,
+    );
+  }
+}
+
+/// 영화 상세 화면입니다.
+///
+/// TMDB 영화라면 위에 [MovieDetailViewModel]이 있어 평점을 서버에 등록할 수 있고,
+/// mock 영화라면 ViewModel이 없어 평점 버튼을 막습니다.
+class MovieDetailScreen extends StatefulWidget {
+  const MovieDetailScreen({super.key, required this.movie});
+
+  final MovieDetailData movie;
+
+  @override
+  State<MovieDetailScreen> createState() => _MovieDetailScreenState();
+}
+
+class _MovieDetailScreenState extends State<MovieDetailScreen> {
+  // 즐겨찾기는 아직 서버 없이 화면 내부 상태로만 관리합니다.
+  bool _isFavorite = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final viewModel = context.watch<MovieDetailViewModel?>();
+
+    return MovieDetailScaffold(
+      body: _MovieDetailBody(
+        movie: widget.movie,
+        myScore: viewModel?.lastSavedScore,
+      ),
+      bottomNavigationBar: _DetailActions(
+        isFavorite: _isFavorite,
+        onFavoritePressed: _toggleFavorite,
+        onRatePressed: viewModel != null && viewModel.canRate
+            ? _openRatingDialog
+            : null,
+        notice: viewModel == null
+            ? const _RatingNotice(message: '샘플 영화는 평점을 저장할 수 없어요.')
+            : !viewModel.canRate
+            ? _RatingNotice(
+                message: '평점을 남기려면 학습용 회원가입이 필요해요.',
+                actionLabel: '회원가입',
+                onAction: () => context.go('/signup'),
+              )
+            : null,
+      ),
     );
   }
 
@@ -143,16 +116,26 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     _showSnackBar(_isFavorite ? '즐겨찾기에 추가했어요.' : '즐겨찾기에서 삭제했어요.');
   }
 
-  Future<void> _openRatingDialog(_DetailData movie) async {
-    final rating = await showMovieRatingDialog(
-      context,
-      movieId: widget.movieId,
-      movieTitle: movie.title,
-      initialRating: _myRating ?? 0,
+  Future<void> _openRatingDialog() async {
+    final viewModel = context.read<MovieDetailViewModel>();
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false, // 저장 중 바깥 탭으로 닫히는 것도 막습니다.
+      builder: (_) => RatingDialog(
+        movieTitle: viewModel.movie.title,
+        onSubmit: (score, comment) async {
+          await viewModel.createRating(score: score, comment: comment);
+          if (viewModel.submitStatus != SubmitStatus.success) {
+            // Dialog가 입력을 유지한 채 서버 message를 보여줍니다.
+            throw RatingWriteFailure(viewModel.submitMessage ?? '저장에 실패했습니다.');
+          }
+        },
+      ),
     );
-    if (rating == null || !mounted) return;
-    setState(() => _myRating = rating);
-    _showSnackBar('평점 ${rating.toStringAsFixed(1)}점을 남겼어요.');
+
+    // 저장 요청과 Snackbar 표시는 서로 다른 비동기 경계라 mounted를 다시 확인합니다.
+    if (!mounted || saved != true) return;
+    _showSnackBar('평점을 등록했습니다. 마이페이지의 "내가 등록한 평점"에서 확인할 수 있습니다.');
   }
 
   void _showSnackBar(String message) {
@@ -162,15 +145,15 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         SnackBar(
           content: Text(message),
           behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
+          duration: const Duration(seconds: 3),
         ),
       );
   }
 }
 
 /// 상세 화면이 그리는 값입니다. mock 영화와 TMDB 영화를 같은 모양으로 맞춥니다.
-class _DetailData {
-  const _DetailData({
+class MovieDetailData {
+  const MovieDetailData({
     required this.title,
     required this.poster,
     required this.meta,
@@ -181,7 +164,7 @@ class _DetailData {
     required this.synopsis,
   });
 
-  factory _DetailData.fromMock(Movie movie) => _DetailData(
+  factory MovieDetailData.fromMock(Movie movie) => MovieDetailData(
     title: movie.title,
     poster: Image.asset(movie.posterPath, fit: BoxFit.cover),
     meta:
@@ -194,7 +177,7 @@ class _DetailData {
     synopsis: movie.synopsis,
   );
 
-  factory _DetailData.fromTmdb(TmdbMovieDto movie) => _DetailData(
+  factory MovieDetailData.fromTmdb(TmdbMovieDto movie) => MovieDetailData(
     title: movie.title,
     poster: TmdbPosterImage(
       posterPath: movie.posterPath,
@@ -224,10 +207,12 @@ class _DetailData {
 }
 
 class _MovieDetailBody extends StatelessWidget {
-  const _MovieDetailBody({required this.movie, required this.myRating});
+  const _MovieDetailBody({required this.movie, required this.myScore});
 
-  final _DetailData movie;
-  final double? myRating;
+  final MovieDetailData movie;
+
+  /// 이 화면에서 방금 서버에 등록한 별점입니다.
+  final int? myScore;
 
   @override
   Widget build(BuildContext context) {
@@ -277,10 +262,10 @@ class _MovieDetailBody extends StatelessWidget {
                     ],
                   ],
                 ),
-                if (myRating != null) ...[
+                if (myScore != null) ...[
                   const SizedBox(height: 8),
                   Text(
-                    '내 평점 ${myRating!.toStringAsFixed(1)}점',
+                    '내 평점 $myScore점 등록 완료',
                     style: textTheme.bodyMedium?.copyWith(
                       color: colors.primary,
                       fontWeight: FontWeight.bold,
@@ -362,11 +347,17 @@ class _DetailActions extends StatelessWidget {
     required this.isFavorite,
     required this.onFavoritePressed,
     required this.onRatePressed,
+    this.notice,
   });
 
   final bool isFavorite;
   final VoidCallback onFavoritePressed;
-  final VoidCallback onRatePressed;
+
+  /// null이면 평점 버튼이 비활성입니다. (mock 영화, 회원가입 전)
+  final VoidCallback? onRatePressed;
+
+  /// 평점 버튼을 누를 수 없는 이유입니다. 버튼 위에 보여줍니다.
+  final Widget? notice;
 
   @override
   Widget build(BuildContext context) {
@@ -381,41 +372,81 @@ class _DetailActions extends StatelessWidget {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onFavoritePressed,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 48),
-                    foregroundColor: colors.primary,
-                    side: BorderSide(color: colors.primary),
-                    shape: const StadiumBorder(),
+              ?notice,
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onFavoritePressed,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 48),
+                        foregroundColor: colors.primary,
+                        side: BorderSide(color: colors.primary),
+                        shape: const StadiumBorder(),
+                      ),
+                      icon: Icon(
+                        isFavorite ? Icons.bookmark : Icons.bookmark_border,
+                        size: 20,
+                      ),
+                      label: Text(isFavorite ? '즐겨찾기 해제' : '즐겨찾기'),
+                    ),
                   ),
-                  icon: Icon(
-                    isFavorite ? Icons.bookmark : Icons.bookmark_border,
-                    size: 20,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: onRatePressed,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 48),
+                        backgroundColor: colors.primary,
+                        foregroundColor: colors.onPrimary,
+                        shape: const StadiumBorder(),
+                      ),
+                      icon: const Icon(Icons.rate_review_outlined, size: 20),
+                      label: const Text('평점 남기기'),
+                    ),
                   ),
-                  label: Text(isFavorite ? '즐겨찾기 해제' : '즐겨찾기'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: onRatePressed,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 48),
-                    backgroundColor: colors.primary,
-                    foregroundColor: colors.onPrimary,
-                    shape: const StadiumBorder(),
-                  ),
-                  icon: const Icon(Icons.rate_review_outlined, size: 20),
-                  label: const Text('평점 남기기'),
-                ),
+                ],
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 평점 버튼을 누를 수 없는 이유와, 필요하면 바로 갈 수 있는 버튼입니다.
+class _RatingNotice extends StatelessWidget {
+  const _RatingNotice({required this.message, this.actionLabel, this.onAction});
+
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final actionLabel = this.actionLabel;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, size: 18, color: colors.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: colors.onSurfaceVariant),
+            ),
+          ),
+          if (actionLabel != null)
+            TextButton(onPressed: onAction, child: Text(actionLabel)),
+        ],
       ),
     );
   }
