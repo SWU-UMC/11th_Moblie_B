@@ -38,6 +38,17 @@ class _LoginScreenState extends State<LoginScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _showSessionExpired());
   }
 
+  /// go('/login', extra: email)로 다시 들어오면 go_router가 기존 State를 재사용할 수 있습니다.
+  /// 새 이메일이 오면 입력칸을 바꾸고, null이거나 같으면 사용자가 입력한 값을 유지합니다.
+  @override
+  void didUpdateWidget(covariant LoginScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final email = widget.initialEmail;
+    if (email != null && email != oldWidget.initialEmail) {
+      _email.text = email;
+    }
+  }
+
   void _showSessionExpired() {
     if (!mounted || !_auth.sessionExpired) return;
     _auth.consumeSessionExpired();
@@ -77,7 +88,9 @@ class _LoginScreenState extends State<LoginScreen> {
     final textTheme = Theme.of(context).textTheme;
     final auth = context.watch<AuthViewModel>();
     final loading = auth.status == AuthStatus.authenticating;
-    final enabled = !loading && !auth.storageCleanupInProgress;
+    // 토큰 삭제가 실패했다면 지우기를 끝낼 때까지 새 로그인을 막습니다.
+    final enabled =
+        !loading && !auth.storageCleanupInProgress && !auth.tokenCleanupFailed;
     final message = auth.message;
 
     return Scaffold(
@@ -141,7 +154,28 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 // 로그인 실패(AUTH401_1)·저장 실패·통신 실패는 각자 다른 문구로 Form 아래에 보여줍니다.
-                if (message != null)
+                if (auth.tokenCleanupFailed)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            message ?? '저장된 로그인 정보를 지우지 못했어요.',
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: colors.error,
+                            ),
+                          ),
+                        ),
+                        MovieLogButton(
+                          label: '다시 지우기',
+                          isLoading: auth.storageCleanupInProgress,
+                          onPressed: auth.retryTokenCleanup,
+                        ),
+                      ],
+                    ),
+                  )
+                else if (message != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
                     child: Text(

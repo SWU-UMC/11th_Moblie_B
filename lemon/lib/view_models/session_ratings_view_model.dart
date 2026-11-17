@@ -114,9 +114,16 @@ class SessionRatingsViewModel extends ChangeNotifier {
           sessionExpired: true,
         );
       }
+      // 요청 중에 로그아웃·재로그인됐다면 실패도 이전 세션의 결과입니다.
+      // 새 세션에서 남은 요청(선택 삭제 등)을 이어 보내지 않도록 멈춥니다.
+      if (_disposed || version != _auth.sessionVersion) {
+        throw const RatingWriteFailure(
+          '이전 로그인 세션의 요청이라 중단했어요.',
+          sessionExpired: true,
+        );
+      }
       if (ratingId != null &&
           isRatingGone(error) &&
-          version == _auth.sessionVersion &&
           _ratings.remove(ratingId) != null) {
         _notify();
       }

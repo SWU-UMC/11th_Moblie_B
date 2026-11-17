@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/network/api_error.dart';
 import '../data/services/member_api_service.dart';
+import '../widgets/max_runes_formatter.dart';
 import 'auth_view_model.dart';
 
 enum EditProfileStatus { idle, saving, success, failure }
@@ -30,7 +31,7 @@ class EditProfileViewModel extends ChangeNotifier {
   /// 서버에 보내기 전에 확인할 수 있는 규칙은 먼저 검사해 불필요한 요청을 줄입니다.
   /// 서버처럼 코드포인트 기준으로 셉니다.
   String? validateNickname(String value) {
-    final length = value.trim().runes.length;
+    final length = runeLength(value.trim());
     if (length < minLength || length > maxLength) {
       return '닉네임은 $minLength~$maxLength자로 입력해 주세요.';
     }

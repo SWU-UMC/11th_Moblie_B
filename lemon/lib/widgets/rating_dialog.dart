@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../data/models/rating_request.dart';
 import '../data/services/rating_api_service.dart';
+import 'max_runes_formatter.dart';
 import 'movie_rating_input.dart';
 import 'movielog_button.dart';
 
@@ -37,7 +37,7 @@ class RatingDialog extends StatefulWidget {
   static const maxCommentLength = 500;
 
   /// 서버는 이모지도 한 글자로 셉니다(코드포인트 기준). 카운터·입력 제한·제출 검사를 모두 이 기준으로 맞춥니다.
-  static int commentLength(String text) => text.runes.length;
+  static int commentLength(String text) => runeLength(text);
 
   @override
   State<RatingDialog> createState() => _RatingDialogState();
@@ -153,7 +153,7 @@ class _RatingDialogState extends State<RatingDialog> {
                   minLines: 3,
                   maxLines: 5,
                   inputFormatters: const [
-                    _MaxRunesFormatter(RatingDialog.maxCommentLength),
+                    MaxRunesFormatter(RatingDialog.maxCommentLength),
                   ],
                   onChanged: (_) => setState(() {}),
                   textInputAction: TextInputAction.newline,
@@ -224,17 +224,4 @@ class _RatingDialogState extends State<RatingDialog> {
       ),
     );
   }
-}
-
-/// 코드포인트 기준으로 최대 길이를 넘는 입력을 막습니다. (붙여넣기 포함)
-class _MaxRunesFormatter extends TextInputFormatter {
-  const _MaxRunesFormatter(this.max);
-
-  final int max;
-
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) => RatingDialog.commentLength(newValue.text) <= max ? newValue : oldValue;
 }

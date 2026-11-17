@@ -40,6 +40,10 @@ class MyRatingsViewModel extends ChangeNotifier {
 
   /// 같은 movieId는 한 번만 조회합니다. 없는 영화(404)는 null로 저장합니다.
   final Map<int, TmdbMovieDto?> _movieCache = {};
+
+  /// 한 번이라도 조회를 시도한 movieId입니다. 실패한 영화는 자동으로 다시 조회하지 않고,
+  /// 사용자가 "다시 불러오기"(load)를 눌렀을 때만 다시 시도합니다.
+  final Set<int> _attemptedMovieIds = {};
   int _requestVersion = 0;
   bool _disposed = false;
 
@@ -54,13 +58,17 @@ class MyRatingsViewModel extends ChangeNotifier {
   final Set<int> selectedRatingIds = {};
   bool isDeletingSelected = false;
 
-  /// 평점과 영화 정보를 묶습니다. 캐시에 없는 영화만 TMDB에서 조회합니다.
-  Future<void> load() async {
+  /// 평점과 영화 정보를 묶습니다. 캐시에 없는 영화(이전에 실패한 영화 포함)를 TMDB에서 조회합니다.
+  Future<void> load() => _loadMovies(retryFailed: true);
+
+  Future<void> _loadMovies({required bool retryFailed}) async {
     if (_disposed) return;
     final version = ++_requestVersion;
     final missingIds = {
       for (final rating in _ratings.ratings)
-        if (!_movieCache.containsKey(rating.movieId)) rating.movieId,
+        if (!_movieCache.containsKey(rating.movieId) &&
+            (retryFailed || !_attemptedMovieIds.contains(rating.movieId)))
+          rating.movieId,
     };
     if (missingIds.isNotEmpty) {
       status = MyRatingsLoadStatus.loading;
@@ -93,13 +101,16 @@ class MyRatingsViewModel extends ChangeNotifier {
   }
 
   /// 등록·수정·삭제·로그아웃으로 세션 평점이 바뀌면 화면 목록을 맞춥니다.
+  /// 수정·삭제는 캐시로만 다시 그리고, 처음 보는 영화만 조회합니다.
   void _onRatingsChanged() {
     if (_disposed) return;
-    final hasUnknownMovie = _ratings.ratings.any(
-      (rating) => !_movieCache.containsKey(rating.movieId),
+    final hasNewMovie = _ratings.ratings.any(
+      (rating) =>
+          !_movieCache.containsKey(rating.movieId) &&
+          !_attemptedMovieIds.contains(rating.movieId),
     );
-    if (hasUnknownMovie) {
-      load();
+    if (hasNewMovie) {
+      _loadMovies(retryFailed: false);
     } else {
       _rebuild();
     }
@@ -182,6 +193,7 @@ class MyRatingsViewModel extends ChangeNotifier {
 
   /// 영화 조회가 실패해도 평점 목록은 지우지 않습니다.
   Future<void> _loadMovie(int movieId) async {
+    _attemptedMovieIds.add(movieId);
     try {
       _movieCache[movieId] = await _movieService.findMovieById(movieId);
     } catch (error) {

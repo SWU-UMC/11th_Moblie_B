@@ -228,6 +228,10 @@ class FakeRatingApiService extends RatingApiService {
     final handler = onCreate;
     if (handler != null) return handler(request);
     final comment = request.comment?.trim();
+    // seedSessionRatings로 넣은 id와 겹치지 않도록 비어 있는 id까지 넘깁니다.
+    while (server.containsKey(_nextId)) {
+      _nextId++;
+    }
     final rating = fakeRating(
       _nextId++,
       request.movieId,

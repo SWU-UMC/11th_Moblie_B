@@ -59,6 +59,11 @@ class AuthViewModel extends ChangeNotifier {
   /// 저장된 토큰을 지우는 중입니다. 이 동안 새 로그인을 막습니다.
   bool storageCleanupInProgress = false;
 
+  /// 로그아웃·만료 때 저장된 토큰 삭제가 실패했습니다.
+  /// 토큰이 남아 있으면 재시작 때 끝낸 세션이 복원되므로, 삭제가 성공할 때까지
+  /// 로그아웃을 끝난 것으로 보지 않고 로그인 화면에서 [retryTokenCleanup]을 제공합니다.
+  bool tokenCleanupFailed = false;
+
   int _sessionVersion = 0;
 
   /// 로그인·복원·로그아웃마다 1씩 오릅니다. 요청 시작 때 값과 응답 때 값이 다르면 버립니다.
@@ -86,7 +91,7 @@ class AuthViewModel extends ChangeNotifier {
 
   /// 앱 시작 시 저장된 토큰을 읽고, 있으면 GET me로 서버 검증을 받은 뒤에만 signedIn입니다.
   Future<void> restoreSession() async {
-    if (storageCleanupInProgress || _disposed) return;
+    if (storageCleanupInProgress || tokenCleanupFailed || _disposed) return;
     final version = ++_sessionVersion;
     status = AuthStatus.initializing;
     message = null;
@@ -130,6 +135,7 @@ class AuthViewModel extends ChangeNotifier {
   Future<void> login(String email, String password) async {
     if (_disposed ||
         storageCleanupInProgress ||
+        tokenCleanupFailed ||
         status == AuthStatus.authenticating) {
       return;
     }
@@ -261,10 +267,29 @@ class AuthViewModel extends ChangeNotifier {
         // 저장이 실패했어도 삭제는 시도합니다.
       }
       await _storage.deleteAccessToken();
+      tokenCleanupFailed = false;
     } catch (_) {
-      if (_isCurrent(version)) {
-        message = '저장된 인증 정보를 지우지 못했어요. 앱을 다시 실행하기 전에 저장소 상태를 확인해 주세요.';
-      }
+      tokenCleanupFailed = true;
+      if (_isCurrent(version)) message = _cleanupFailedMessage;
+    } finally {
+      storageCleanupInProgress = false;
+      _notify();
+    }
+  }
+
+  static const _cleanupFailedMessage = '저장된 로그인 정보를 지우지 못했어요. 다시 시도해 주세요.';
+
+  /// 실패한 토큰 삭제를 다시 시도합니다. 성공해야 로그아웃이 끝납니다.
+  Future<void> retryTokenCleanup() async {
+    if (_disposed || !tokenCleanupFailed || storageCleanupInProgress) return;
+    storageCleanupInProgress = true;
+    message = null;
+    _notify();
+    try {
+      await _storage.deleteAccessToken();
+      tokenCleanupFailed = false;
+    } catch (_) {
+      message = _cleanupFailedMessage;
     } finally {
       storageCleanupInProgress = false;
       _notify();

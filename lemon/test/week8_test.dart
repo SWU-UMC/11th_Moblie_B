@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
@@ -17,7 +18,9 @@ import 'package:movielog/data/services/member_api_service.dart';
 import 'package:movielog/data/services/rating_api_service.dart';
 import 'package:movielog/screens/login_screen.dart';
 import 'package:movielog/screens/splash_screen.dart';
+import 'package:movielog/theme/app_theme.dart';
 import 'package:movielog/view_models/auth_view_model.dart';
+import 'package:movielog/view_models/my_ratings_view_model.dart';
 import 'package:movielog/view_models/session_ratings_view_model.dart';
 import 'package:movielog/widgets/movielog_button.dart';
 
@@ -984,6 +987,206 @@ void main() {
       expect(find.textContaining('기존 기록을 확인'), findsOneWidget);
       expect(find.text('최고'), findsOneWidget);
       expect(app.router.state.uri.path, '/movies/550');
+    });
+  });
+
+  group('CodeRabbit review fixes', () {
+    testWidgets('nickname counter and limit use code points like validation', (
+      tester,
+    ) async {
+      await pumpApp(tester, initialLocation: '/my');
+      await tester.tap(find.text('프로필 수정'));
+      await tester.pumpAndSettle();
+      final field = find.byType(TextField).last;
+      expect(find.text('4 / 12'), findsOneWidget);
+
+      // 👩‍💻 하나는 코드포인트 3개입니다. 4개(12)는 들어가고 5개(15)는 막힙니다.
+      await tester.enterText(field, '👩‍💻' * 4);
+      await tester.pump();
+      expect(find.text('12 / 12'), findsOneWidget);
+      await tester.enterText(field, '👩‍💻' * 5);
+      await tester.pump();
+      expect(find.text('12 / 12'), findsOneWidget);
+      expect(tester.widget<TextField>(field).controller!.text, '👩‍💻' * 4);
+    });
+
+    testWidgets('a reused login screen takes the new initial email', (
+      tester,
+    ) async {
+      final auth = AuthViewModel(
+        FakeAuthApiService(),
+        FakeMemberApiService(),
+        InMemoryTokenStorage(),
+      );
+      addTearDown(auth.dispose);
+      Widget screen(String? email) => ChangeNotifierProvider.value(
+        value: auth,
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: LoginScreen(initialEmail: email),
+        ),
+      );
+      await tester.pumpWidget(screen('a@example.com'));
+      expect(find.text('a@example.com'), findsOneWidget);
+
+      await tester.pumpWidget(screen('b@example.com'));
+      expect(find.text('b@example.com'), findsOneWidget);
+
+      // null이면 사용자가 입력한 값을 그대로 둡니다.
+      await tester.enterText(find.byType(TextFormField).first, 'typed@x.com');
+      await tester.pumpWidget(screen(null));
+      expect(find.text('typed@x.com'), findsOneWidget);
+    });
+
+    test(
+      'failed token deletion stays retryable and blocks a new login',
+      () async {
+        final storage = InMemoryTokenStorage('saved');
+        final authApi = FakeAuthApiService();
+        final auth = AuthViewModel(authApi, FakeMemberApiService(), storage);
+        await auth.restoreSession();
+
+        storage.fail = true;
+        await auth.logout();
+        expect(auth.status, AuthStatus.signedOut);
+        expect(auth.tokenCleanupFailed, isTrue);
+        expect(auth.message, contains('지우지 못했어요'));
+
+        // 삭제가 끝나기 전에는 새 로그인·세션 복원을 하지 않습니다.
+        await auth.login('a@b.com', 'p');
+        await auth.restoreSession();
+        expect(authApi.requests, isEmpty);
+        expect(auth.status, AuthStatus.signedOut);
+
+        storage.fail = false;
+        await auth.retryTokenCleanup();
+        expect(auth.tokenCleanupFailed, isFalse);
+        expect(storage.token, isNull);
+        await auth.login('a@b.com', 'p');
+        expect(auth.status, AuthStatus.signedIn);
+      },
+    );
+
+    testWidgets('login screen offers the token deletion retry', (tester) async {
+      final storage = InMemoryTokenStorage('saved');
+      final app = TestApp();
+      await pumpApp(tester, app: app, initialLocation: '/my');
+      app.storage.fail = true;
+      await tester.tap(find.widgetWithText(TextButton, '로그아웃'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('로그아웃'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(app.router.state.uri.path, '/login');
+      expect(find.text('저장된 로그인 정보를 지우지 못했어요. 다시 시도해 주세요.'), findsOneWidget);
+      expect(tester.widget<MovieLogButton>(loginButton()).onPressed, isNull);
+
+      app.storage.fail = false;
+      await tester.tap(find.text('다시 지우기'));
+      await tester.pumpAndSettle();
+      expect(app.storage.token, isNull);
+      expect(find.text('다시 지우기'), findsNothing);
+      expect(tester.widget<MovieLogButton>(loginButton()).onPressed, isNotNull);
+      expect(storage.token, 'saved'); // 다른 저장소는 건드리지 않습니다.
+    });
+
+    test(
+      'failed movie lookups are retried only by an explicit reload',
+      () async {
+        final auth = AuthViewModel(
+          FakeAuthApiService(),
+          FakeMemberApiService(),
+          InMemoryTokenStorage('saved'),
+        );
+        await auth.restoreSession();
+        final ratings = SessionRatingsViewModel(FakeRatingApiService(), auth);
+        final movies = FakeMovieLookupService(failingIds: {1, 2, 3});
+        final viewModel = MyRatingsViewModel(ratings, movies);
+        for (final movieId in [1, 2, 3]) {
+          await ratings.create(movieId: movieId, score: 3);
+        }
+        await viewModel.load();
+        final afterLoad = movies.lookups.length;
+
+        // 삭제·수정은 캐시로만 다시 그리고 실패한 영화를 다시 조회하지 않습니다.
+        await viewModel.deleteRating(ratings.ratings.first.ratingId);
+        await viewModel.updateRating(
+          ratingId: ratings.ratings.first.ratingId,
+          score: 5,
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(movies.lookups.length, afterLoad);
+        expect(viewModel.ratings, hasLength(2));
+
+        // 처음 보는 영화는 바로 조회합니다.
+        await ratings.create(movieId: 4, score: 4);
+        await Future<void>.delayed(Duration.zero);
+        expect(movies.lookups.last, 4);
+        final afterNew = movies.lookups.length;
+
+        // "다시 불러오기"는 실패했던 영화를 다시 조회합니다.
+        await viewModel.load();
+        expect(movies.lookups.length, greaterThan(afterNew));
+        viewModel.dispose();
+      },
+    );
+
+    test(
+      'bulk delete stops when a request fails after a session change',
+      () async {
+        final auth = AuthViewModel(
+          FakeAuthApiService(),
+          FakeMemberApiService(),
+          InMemoryTokenStorage('saved'),
+        );
+        await auth.restoreSession();
+        final gate = Completer<void>();
+        final ratingApi = FakeRatingApiService();
+        final ratings = SessionRatingsViewModel(ratingApi, auth);
+        final viewModel = MyRatingsViewModel(ratings, FakeMovieLookupService());
+        final first = await ratings.create(movieId: 1, score: 3);
+        final second = await ratings.create(movieId: 2, score: 3);
+        await viewModel.load();
+        ratingApi.onDelete = (ratingId) async {
+          await gate.future;
+          throw fakeDioError('/v7/ratings/$ratingId'); // 타임아웃 같은 일반 실패
+        };
+        viewModel
+          ..startSelection()
+          ..toggleSelection(first.ratingId)
+          ..toggleSelection(second.ratingId);
+
+        final pending = viewModel.deleteSelectedRatings();
+        await Future<void>.delayed(Duration.zero);
+        await auth.logout();
+        await auth.login('a@b.com', 'p'); // 다른 세션입니다.
+        gate.complete();
+        final result = await pending;
+
+        expect(result.sessionExpired, isTrue);
+        // 새 세션에서 남은 삭제 요청을 보내지 않습니다.
+        expect(ratingApi.deletes, hasLength(1));
+        viewModel.dispose();
+      },
+    );
+
+    testWidgets('a default created rating never reuses a seeded id', (
+      tester,
+    ) async {
+      final app = TestApp();
+      await pumpApp(tester, app: app, initialLocation: '/my');
+      await seedSessionRatings(tester, app, [fakeRating(100, 550, 5)]);
+
+      final created = await app.ratingApi.createRating(
+        const CreateRatingRequest(movieId: 13, score: 4),
+      );
+      expect(created.ratingId, isNot(100));
+      expect(app.ratingApi.server.keys, containsAll([100, created.ratingId]));
     });
   });
 }

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../view_models/auth_view_model.dart';
 import '../view_models/edit_profile_view_model.dart';
+import '../widgets/max_runes_formatter.dart';
 import '../widgets/movielog_app_bar.dart';
 import '../widgets/movielog_button.dart';
 
@@ -123,12 +124,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         TextField(
                           controller: _controller,
                           enabled: !saving,
-                          maxLength: EditProfileViewModel.maxLength,
+                          // Flutter maxLength(grapheme 기준) 대신 검증과 같은 코드포인트 기준으로
+                          // 입력을 제한하고 카운터를 표시합니다.
+                          inputFormatters: const [
+                            MaxRunesFormatter(EditProfileViewModel.maxLength),
+                          ],
                           textInputAction: TextInputAction.done,
-                          onChanged: (_) => viewModel.onNicknameChanged(),
+                          onChanged: (_) {
+                            setState(() {}); // 코드포인트 카운터를 갱신합니다.
+                            viewModel.onNicknameChanged();
+                          },
                           onSubmitted: (_) => _submit(),
                           decoration: InputDecoration(
                             hintText: '2~12자로 입력해 주세요',
+                            counterText:
+                                '${runeLength(_controller.text)} / '
+                                '${EditProfileViewModel.maxLength}',
                             errorText: viewModel.nicknameError,
                             errorMaxLines: 2,
                             filled: true,
