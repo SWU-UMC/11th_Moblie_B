@@ -1,4 +1,4 @@
-import '../data/services/member_check_service.dart';
+import '../data/services/sign_up_service.dart';
 import '../data/services/rating_api_service.dart';
 import '../view_models/sign_up_view_model.dart';
 import '../view_models/my_ratings_view_model.dart';
@@ -8,7 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../account_screens.dart';
-import '../movie.dart';
+import '../data/models/tmdb_movie_dto.dart';
+import '../screens/movie_detail_loader.dart';
+import '../view_models/learning_member_session.dart';
 import '../movie_screens.dart';
 
 import 'package:provider/provider.dart';
@@ -30,9 +32,8 @@ class AppRouter {
       GoRoute(
         path: '/register',
         builder: (context, state) => ChangeNotifierProvider(
-          create: (context) =>
-              SignUpViewModel(context.read<MemberCheckService>()),
-          child: const PopScope(canPop: false, child: SignUpScreen()),
+          create: (context) => SignUpViewModel(context.read<SignUpService>()),
+          child: const SignUpScreen(),
         ),
       ),
       ShellRoute(
@@ -68,14 +69,37 @@ class AppRouter {
               GoRoute(
                 path: 'ratings',
                 parentNavigatorKey: rootNavigatorKey,
-                builder: (context, state) => ChangeNotifierProvider(
-                  create: (context) => MyRatingsViewModel(
-                    context.read<RatingApiService>(),
-                    context.read<TmdbMovieService>(),
-                    sampleMemberId,
-                  )..load(),
-                  child: const MyRatingsScreen(),
-                ),
+                builder: (context, state) {
+                  final id = context.read<LearningMemberSession>().memberId;
+                  if (id == null) {
+                    return Scaffold(
+                      appBar: AppBar(
+                        centerTitle: true,
+                        title: const Text('내가 등록한 평점'),
+                      ),
+                      body: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('학습용 회원가입이 필요합니다.'),
+                            TextButton(
+                              onPressed: () => context.go('/register'),
+                              child: const Text('회원가입'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  return ChangeNotifierProvider(
+                    create: (context) => MyRatingsViewModel(
+                      context.read<RatingApiService>(),
+                      context.read<TmdbMovieService>(),
+                      id,
+                    )..load(),
+                    child: const MyRatingsScreen(),
+                  );
+                },
               ),
             ],
           ),
@@ -87,9 +111,14 @@ class AppRouter {
         builder: (context, state) {
           final id = int.tryParse(state.pathParameters['movieId'] ?? '');
           final extra = state.extra;
-          final movie = extra is Movie && extra.id == id ? extra : null;
-          if (movie == null) return const MovieNotFoundScreen();
-          return MovieDetailScreen(key: ValueKey(movie.id), movie: movie);
+          if (id == null || id < 1) return const MovieNotFoundScreen();
+          return MovieDetailLoader(
+            key: ValueKey(id),
+            movieId: id,
+            initialMovie: extra is TmdbMovieDto && extra.id == id
+                ? extra
+                : null,
+          );
         },
       ),
     ],
