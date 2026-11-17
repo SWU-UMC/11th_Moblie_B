@@ -4,7 +4,9 @@ import '../models/common_response.dart';
 import '../models/create_member_request.dart';
 import '../models/rating_dto.dart';
 import '../models/rating_request.dart';
+import '../models/member_info.dart';
 import '../models/sign_up_models.dart';
+import 'member_api_service.dart';
 import 'rating_api_service.dart';
 import 'sign_up_service.dart';
 
@@ -59,28 +61,6 @@ enum MemberCheckMode {
   );
 }
 
-/// 내가 등록한 평점 조회 결과를 정하는 모드입니다. (`RATING_LOAD_MODE`)
-enum RatingLoadMode {
-  /// 실제 응답을 그대로 사용합니다.
-  success,
-
-  /// 3초 기다린 뒤 실제 응답을 사용합니다. Loading 화면 확인용입니다.
-  slow,
-
-  /// 평점이 하나도 없는 빈 배열을 돌려줍니다.
-  empty,
-
-  /// 통신 자체가 실패합니다. 재시도하면 실제 응답을 사용합니다.
-  errorOnce;
-
-  static RatingLoadMode fromEnvironment() => _modeFromEnvironment(
-    'RATING_LOAD_MODE',
-    const String.fromEnvironment('RATING_LOAD_MODE'),
-    values,
-    success,
-  );
-}
-
 /// 평점 등록·수정·삭제 결과를 정하는 모드입니다. (`RATING_WRITE_MODE`)
 enum RatingWriteMode {
   /// 실제 응답을 그대로 사용합니다.
@@ -90,15 +70,31 @@ enum RatingWriteMode {
   slow,
 
   /// 쓰기 통신 자체가 실패합니다. 저장 실패 후 입력이 유지되는지 확인합니다.
-  error,
-
-  /// 쓰기는 실제로 성공시키고, 바로 다음 목록 GET만 한 번 실패시킵니다.
-  /// "저장 성공 + 목록 재조회 실패"와 조회만 다시 시도하는 흐름을 확인합니다.
-  refreshErrorOnce;
+  error;
 
   static RatingWriteMode fromEnvironment() => _modeFromEnvironment(
     'RATING_WRITE_MODE',
     const String.fromEnvironment('RATING_WRITE_MODE'),
+    values,
+    success,
+  );
+}
+
+/// 앱 시작 시 세션 확인(GET me) 결과를 정하는 모드입니다. (`AUTH_RESTORE_MODE`)
+enum AuthRestoreMode {
+  /// 실제 응답을 그대로 사용합니다.
+  success,
+
+  /// 3초 기다린 뒤 실제 요청을 보냅니다. Splash 로딩 확인용입니다.
+  slow,
+
+  /// 첫 GET me만 네트워크 오류로 실패시킵니다. 토큰을 지우지 않고 재시도 화면이 나오는지,
+  /// 다시 시도하면 실제 응답으로 홈에 들어가는지 확인합니다.
+  errorOnce;
+
+  static AuthRestoreMode fromEnvironment() => _modeFromEnvironment(
+    'AUTH_RESTORE_MODE',
+    const String.fromEnvironment('AUTH_RESTORE_MODE'),
     values,
     success,
   );
@@ -112,11 +108,11 @@ class DebugSignUpService extends SignUpService {
 
   @override
   Future<bool> checkNickname(String nickname) =>
-      _check('/v6/members/nickname', () => super.checkNickname(nickname));
+      _check('/v7/members/nickname', () => super.checkNickname(nickname));
 
   @override
   Future<bool> checkEmail(String email) =>
-      _check('/v6/members/email', () => super.checkEmail(email));
+      _check('/v7/members/email', () => super.checkEmail(email));
 
   @override
   Future<CommonResponse<SignUpResult>> signUp(
@@ -143,79 +139,36 @@ class DebugSignUpService extends SignUpService {
   }
 }
 
-/// 평점 조회·쓰기 결과를 모드에 맞게 바꾸는 개발용 Service입니다.
+/// 평점 쓰기 결과를 모드에 맞게 바꾸는 개발용 Service입니다.
 class DebugRatingApiService extends RatingApiService {
   DebugRatingApiService(
-    super.dio, {
-    this.loadMode = RatingLoadMode.success,
-    this.writeMode = RatingWriteMode.success,
+    super.publicDio,
+    super.authDio, {
+    required this.writeMode,
   });
 
-  final RatingLoadMode loadMode;
   final RatingWriteMode writeMode;
-  bool _loadFailedOnce = false;
-  bool _failNextLoad = false;
 
   @override
-  Future<List<RatingDto>> fetchMyRatings(int memberId) async {
-    final path = '/v6/members/$memberId/ratings';
-    if (_failNextLoad) {
-      _failNextLoad = false;
-      await _wait(1);
-      throw _fakeError(path, 'RATING_WRITE_MODE=refreshErrorOnce');
-    }
-    switch (loadMode) {
-      case RatingLoadMode.success:
-        return super.fetchMyRatings(memberId);
-      case RatingLoadMode.slow:
-        await _wait(3);
-        return super.fetchMyRatings(memberId);
-      case RatingLoadMode.empty:
-        await _wait(1);
-        return const [];
-      case RatingLoadMode.errorOnce:
-        if (!_loadFailedOnce) {
-          _loadFailedOnce = true;
-          await _wait(1);
-          throw _fakeError(path, 'RATING_LOAD_MODE=errorOnce');
-        }
-        return super.fetchMyRatings(memberId);
-    }
-  }
+  Future<RatingDto> createRating(CreateRatingRequest request) =>
+      _write('/v7/ratings', () => super.createRating(request));
 
   @override
-  Future<void> createRating({
-    required int memberId,
-    required CreateRatingRequest request,
-  }) => _write(
-    '/v6/members/$memberId/ratings',
-    () => super.createRating(memberId: memberId, request: request),
-  );
-
-  @override
-  Future<void> updateRating({
-    required int memberId,
+  Future<RatingDto> updateRating({
     required int ratingId,
     required int score,
     String? comment,
   }) => _write(
-    '/v6/members/$memberId/ratings/$ratingId',
-    () => super.updateRating(
-      memberId: memberId,
-      ratingId: ratingId,
-      score: score,
-      comment: comment,
-    ),
+    '/v7/ratings/$ratingId',
+    () =>
+        super.updateRating(ratingId: ratingId, score: score, comment: comment),
   );
 
   @override
-  Future<void> deleteRating({required int memberId, required int ratingId}) =>
-      _write(
-        '/v6/members/$memberId/ratings/$ratingId',
-        () => super.deleteRating(memberId: memberId, ratingId: ratingId),
-      );
+  Future<void> deleteRating(int ratingId) =>
+      _write('/v7/ratings/$ratingId', () => super.deleteRating(ratingId));
 
-  Future<void> _write(String path, Future<void> Function() request) async {
+  Future<T> _write<T>(String path, Future<T> Function() request) async {
     switch (writeMode) {
       case RatingWriteMode.success:
         return request();
@@ -225,9 +178,33 @@ class DebugRatingApiService extends RatingApiService {
       case RatingWriteMode.error:
         await _wait(1);
         throw _fakeError(path, 'RATING_WRITE_MODE=error');
-      case RatingWriteMode.refreshErrorOnce:
-        await request();
-        _failNextLoad = true;
+    }
+  }
+}
+
+/// 세션 확인(GET me) 결과를 모드에 맞게 바꾸는 개발용 Service입니다.
+/// 프로필 수정(PATCH)은 그대로 실제 서버로 보냅니다.
+class DebugMemberApiService extends MemberApiService {
+  DebugMemberApiService(super.authDio, {required this.restoreMode});
+
+  final AuthRestoreMode restoreMode;
+  bool _failedOnce = false;
+
+  @override
+  Future<MemberInfo> fetchMe() async {
+    switch (restoreMode) {
+      case AuthRestoreMode.success:
+        return super.fetchMe();
+      case AuthRestoreMode.slow:
+        await _wait(3);
+        return super.fetchMe();
+      case AuthRestoreMode.errorOnce:
+        if (!_failedOnce) {
+          _failedOnce = true;
+          await _wait(1);
+          throw _fakeError('/v7/members/me', 'AUTH_RESTORE_MODE=errorOnce');
+        }
+        return super.fetchMe();
     }
   }
 }

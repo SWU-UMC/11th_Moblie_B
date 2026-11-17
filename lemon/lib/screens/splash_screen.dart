@@ -1,17 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:go_router/go_router.dart';
 
-class StartScreen extends StatelessWidget {
-  const StartScreen({super.key});
+import '../widgets/movielog_button.dart';
+
+/// 앱 시작 시 저장된 토큰을 확인하는 동안 보여주는 화면입니다.
+///
+/// 1주차 StartScreen의 로고·제목·설명 레이아웃을 그대로 쓰고,
+/// 하단 버튼 자리만 상태에 따라 바꿉니다.
+/// - [onRetry]가 null: 세션 확인 중(initializing) → 인디케이터
+/// - [onRetry]가 있음: 확인 실패(retryRequired) → 안내 문구 + 다시 시도 버튼
+class SplashScreen extends StatelessWidget {
+  const SplashScreen({super.key, this.message, this.onRetry});
+
+  final String? message;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final onRetry = this.onRetry;
+
     return Scaffold(
       body: SafeArea(
-        // 화면이 낮거나 글자가 커져도 두 버튼까지 스크롤해서 닿을 수 있게 합니다.
+        // 화면이 낮거나 글자가 커져도 하단 버튼까지 스크롤해서 닿을 수 있게 합니다.
         child: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
             padding: const EdgeInsets.all(32),
@@ -29,7 +41,7 @@ class StartScreen extends StatelessWidget {
                     Column(
                       children: [
                         const SizedBox(height: 32),
-                        const Text('FLUTTER 1주차'),
+                        const Text('FLUTTER 8주차'),
                         const SizedBox(height: 64),
                         SvgPicture.asset(
                           'assets/logos/movielog_logo.svg',
@@ -52,36 +64,35 @@ class StartScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    Column(
-                      children: [
-                        // 이미 가입한 사용자는 회원가입 없이 바로 홈으로 이동합니다.
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton(
-                            onPressed: () => context.go('/home'),
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(0, 48),
-                              foregroundColor: colors.primary,
-                              side: BorderSide(color: colors.primary),
-                            ),
-                            child: const Text('로그인'),
-                          ),
+                    // 1주차 하단 버튼 자리를 로딩/재시도 상태로 대체합니다.
+                    if (onRetry == null)
+                      Semantics(
+                        label: '로그인 상태 확인 중',
+                        child: const Padding(
+                          padding: EdgeInsets.only(top: 24),
+                          child: CircularProgressIndicator(),
                         ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () => context.pushReplacement('/signup'),
-                            style: ElevatedButton.styleFrom(
-                              minimumSize: const Size(0, 48),
-                              backgroundColor: colors.primary,
-                              foregroundColor: colors.onPrimary,
+                      )
+                    else
+                      Column(
+                        children: [
+                          const SizedBox(height: 24),
+                          Text(
+                            message ?? '로그인 상태를 확인하지 못했어요.',
+                            textAlign: TextAlign.center,
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: colors.error,
                             ),
-                            child: const Text('시작하기'),
                           ),
-                        ),
-                      ],
-                    ),
+                          const SizedBox(height: 12),
+                          MovieLogButton(
+                            label: '다시 시도',
+                            width: double.infinity,
+                            height: 48,
+                            onPressed: onRetry,
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               ),

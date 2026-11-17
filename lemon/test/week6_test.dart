@@ -12,12 +12,9 @@ import 'package:movielog/data/models/check_result.dart';
 import 'package:movielog/data/models/rating_dto.dart';
 import 'package:movielog/data/services/rating_api_service.dart';
 import 'package:movielog/data/services/sign_up_service.dart';
-import 'package:movielog/main.dart';
-import 'package:movielog/router/app_router.dart';
 import 'package:movielog/screens/my_ratings_screen.dart';
 import 'package:movielog/screens/signup_screen.dart';
 import 'package:movielog/theme/app_theme.dart';
-import 'package:movielog/view_models/my_ratings_view_model.dart';
 import 'package:movielog/view_models/signup_view_model.dart';
 import 'package:movielog/widgets/movielog_button.dart';
 
@@ -104,14 +101,9 @@ void main() {
     tester,
   ) async {
     useTallScreen(tester);
-    final router = createAppRouter(initialLocation: '/dev/buttons');
+    // 개발용 화면은 로그인 여부와 관계없이 열립니다.
     await tester.pumpWidget(
-      MovieLogApp(
-        router: router,
-        movieService: FakeMovieLookupService(),
-        signUpService: FakeSignUpService(),
-        ratingApiService: FakeRatingApiService((_) async => const []),
-      ),
+      TestApp(token: null).build(initialLocation: '/dev/buttons'),
     );
     // 통신 중 예시의 인디케이터가 계속 돌기 때문에 pumpAndSettle 대신 pump를 씁니다.
     await tester.pump();
@@ -293,78 +285,52 @@ void main() {
     });
   });
 
-  group('My ratings', () {
-    late FakeRatingApiService ratingService;
-    late FakeMovieLookupService movieService;
+  group('My ratings (this login session)', () {
+    late TestApp app;
 
     setUp(() {
-      movieService = FakeMovieLookupService(
-        movies: {550: fakeMovie(550, '파이트 클럽')},
+      app = TestApp(
+        movieService: FakeMovieLookupService(
+          movies: {550: fakeMovie(550, '파이트 클럽')},
+        ),
       );
     });
 
-    Future<void> pumpRatings(WidgetTester tester) async {
+    /// 마이페이지에서 세션 평점을 넣고 "내가 등록한 평점"을 엽니다.
+    Future<void> openRatings(
+      WidgetTester tester, [
+      List<RatingDto> ratings = const [],
+    ]) async {
       useTallScreen(tester);
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light,
-          home: ChangeNotifierProvider(
-            create: (_) =>
-                MyRatingsViewModel(ratingService, movieService, 1)..load(),
-            child: const MyRatingsScreen(),
-          ),
-        ),
-      );
+      await tester.pumpWidget(app.build(initialLocation: '/my'));
+      await tester.pumpAndSettle();
+      await seedSessionRatings(tester, app, ratings);
+      await tester.tap(find.text('내가 등록한 평점'));
+      await tester.pumpAndSettle();
     }
 
     testWidgets('opens from profile without NavigationBar and goes back', (
       tester,
     ) async {
-      useTallScreen(tester);
-      ratingService = FakeRatingApiService((_) async => const []);
-      final router = createAppRouter(initialLocation: '/my');
-      await tester.pumpWidget(
-        MovieLogApp(
-          router: router,
-          movieService: movieService,
-          signUpService: FakeSignUpService(),
-          ratingApiService: ratingService,
-          initialMemberId: 1,
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byType(NavigationBar), findsOneWidget);
-
-      await tester.tap(find.text('내가 등록한 평점'));
-      await tester.pumpAndSettle();
-      expect(router.state.uri.path, '/my/ratings');
+      await openRatings(tester);
+      expect(app.router.state.uri.path, '/my/ratings');
       expect(find.byType(MyRatingsScreen), findsOneWidget);
       expect(find.byType(NavigationBar), findsNothing);
-      expect(ratingService.memberIds, [1]);
 
       await tester.tap(find.byTooltip('뒤로 가기'));
       await tester.pumpAndSettle();
-      expect(router.state.uri.path, '/my');
+      expect(app.router.state.uri.path, '/my');
       expect(find.byType(NavigationBar), findsOneWidget);
     });
 
-    testWidgets('loading then success with TMDB title and placeholder', (
+    testWidgets('shows TMDB title and placeholder without a list GET', (
       tester,
     ) async {
-      final gate = Completer<void>();
-      ratingService = FakeRatingApiService((_) async {
-        await gate.future;
-        return [
-          fakeRating(1, 550, 5, comment: '최고의 영화!'),
-          fakeRating(2, 13, 3),
-          fakeRating(3, 550, 4, comment: '다시 봐도 좋다'),
-        ];
-      });
-      await pumpRatings(tester);
-      expect(find.text('평점을 불러오고 있어요'), findsOneWidget);
-
-      gate.complete();
-      await tester.pumpAndSettle();
+      await openRatings(tester, [
+        fakeRating(1, 550, 5, comment: '최고의 영화!'),
+        fakeRating(2, 13, 3),
+        fakeRating(3, 550, 4, comment: '다시 봐도 좋다'),
+      ]);
 
       expect(find.text('파이트 클럽'), findsNWidgets(2));
       expect(find.text('별점 5 / 5'), findsOneWidget);
@@ -381,65 +347,42 @@ void main() {
       expect(find.text(expectedDate, skipOffstage: false), findsWidgets);
       expect(find.text('일부 영화 정보를 가져오지 못해 제목·포스터를 대신 표시합니다.'), findsOneWidget);
       // 같은 movieId(550)는 한 번만 조회합니다.
-      expect(movieService.lookups.where((id) => id == 550), hasLength(1));
+      final lookups = (app.movieService as FakeMovieLookupService).lookups;
+      expect(lookups.where((id) => id == 550), hasLength(1));
+      // 목록은 등록 응답으로 만들었으므로 평점 API를 다시 부르지 않습니다.
+      expect(app.ratingApi.log, isEmpty);
     });
 
-    testWidgets('empty list shows empty view', (tester) async {
-      ratingService = FakeRatingApiService((_) async => const []);
-      await pumpRatings(tester);
-      await tester.pumpAndSettle();
-      expect(find.text('아직 등록한 평점이 없어요.'), findsOneWidget);
-      expect(find.text('학습용 회원(memberId 1)의 평점입니다.'), findsOneWidget);
-    });
-
-    testWidgets('404 shows member message and retry recovers', (tester) async {
-      var calls = 0;
-      ratingService = FakeRatingApiService((memberId) async {
-        calls++;
-        if (calls == 1) {
-          throw fakeDioError('/v6/members/$memberId/ratings', statusCode: 404);
-        }
-        return [fakeRating(1, 550, 5)];
-      });
-      await pumpRatings(tester);
-      await tester.pumpAndSettle();
-      expect(find.text('존재하지 않는 회원입니다.'), findsOneWidget);
-      expect(find.text('학습용 회원(memberId 1)의 평점입니다.'), findsOneWidget);
-
-      await tester.tap(find.text('다시 시도'));
-      await tester.pumpAndSettle();
-      expect(find.text('파이트 클럽'), findsOneWidget);
+    testWidgets('empty session shows guidance instead of a GET', (
+      tester,
+    ) async {
+      await openRatings(tester);
+      expect(
+        find.text('이번 로그인에서 등록한 평점이 없어요.\n영화 상세에서 평점을 남겨 보세요.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('이번 로그인에서 등록한 평점이에요.'), findsOneWidget);
     });
 
     testWidgets('TMDB failure keeps ratings and is retried next load', (
       tester,
     ) async {
-      movieService.failingIds = {550};
-      ratingService = FakeRatingApiService(
-        (_) async => [fakeRating(1, 550, 5)],
-      );
-      await pumpRatings(tester);
-      await tester.pumpAndSettle();
+      final movies = app.movieService as FakeMovieLookupService;
+      movies.failingIds = {550};
+      await openRatings(tester, [fakeRating(1, 550, 5)]);
       expect(find.text('영화 #550'), findsOneWidget);
       expect(find.text('별점 5 / 5'), findsOneWidget);
 
       // 일시적인 실패는 캐시하지 않으므로, 화면의 "다시 불러오기"로 영화를 다시 찾습니다.
-      movieService.failingIds = {};
+      movies.failingIds = {};
       await tester.tap(find.text('다시 불러오기'));
       await tester.pumpAndSettle();
       expect(find.text('파이트 클럽'), findsOneWidget);
       expect(find.text('다시 불러오기'), findsNothing);
     });
-
-    testWidgets('malformed response shows error view', (tester) async {
-      ratingService = FakeRatingApiService((_) async => throw TypeError());
-      await pumpRatings(tester);
-      await tester.pumpAndSettle();
-      expect(find.text('다시 시도'), findsOneWidget);
-    });
   });
 
-  group('Real v6 read services', () {
+  group('Real v7 read services', () {
     late _RecordingAdapter adapter;
 
     Dio dio() =>
@@ -455,24 +398,32 @@ void main() {
 
       // 앞뒤 공백은 지우고, 경로에 들어가는 값은 인코딩합니다.
       expect(adapter.paths, [
-        '/v6/members/nickname/${Uri.encodeComponent('영화광')}',
-        '/v6/members/email/movie%40umc.com',
+        '/v7/members/nickname/${Uri.encodeComponent('영화광')}',
+        '/v7/members/email/movie%40umc.com',
       ]);
     });
 
-    test('fetchMyRatings requests the member ratings path', () async {
+    test('public member ratings GET uses the public client', () async {
       adapter = _RecordingAdapter(
         '[{"ratingId":1,"movieId":550,"score":5,"comment":null,'
-        '"createdAt":"2026-11-01T19:00:27.956Z"}]',
+        '"createdAt":"2026-11-01T19:00:27.956Z",'
+        '"updatedAt":"2026-11-01T19:00:27.956Z"}]',
       );
-      final ratings = await RatingApiService(dio()).fetchMyRatings(1);
+      final authAdapter = _RecordingAdapter('{}');
+      final authDio = Dio(BaseOptions(baseUrl: 'https://workbook.devnoco.com'))
+        ..httpClientAdapter = authAdapter;
+      final ratings = await RatingApiService(
+        dio(),
+        authDio,
+      ).fetchMemberRatings(1);
 
-      expect(adapter.paths, ['/v6/members/1/ratings']);
+      expect(adapter.paths, ['/v7/members/1/ratings']);
+      expect(authAdapter.paths, isEmpty);
       expect(ratings.single.movieId, 550);
     });
   });
 
-  test('RatingDto and CheckResult parse direct v6 success responses', () {
+  test('RatingDto and CheckResult parse direct success responses', () {
     final rating = RatingDto.fromJson({
       'ratingId': 3,
       'movieId': 13,
@@ -486,6 +437,7 @@ void main() {
     expect(rating.score, 3);
     expect(rating.comment, isNull);
     expect(rating.createdAt, DateTime.utc(2026, 11, 1, 19, 0, 27, 956));
+    expect(rating.updatedAt, DateTime.utc(2026, 11, 1, 19, 0, 27, 956));
 
     expect(CheckResult.fromJson({'available': false}).available, isFalse);
   });

@@ -12,12 +12,10 @@ import 'package:movielog/data/models/tmdb_genre_dto.dart';
 import 'package:movielog/data/models/tmdb_movie_dto.dart';
 import 'package:movielog/data/models/tmdb_movie_page.dart';
 import 'package:movielog/data/services/tmdb_movie_service.dart';
-import 'package:movielog/main.dart';
-import 'package:movielog/router/app_router.dart';
 import 'package:movielog/screens/home_screen.dart';
 import 'package:movielog/screens/movies_screen.dart';
 import 'package:movielog/screens/signup_screen.dart';
-import 'package:movielog/screens/start_screen.dart';
+import 'package:movielog/screens/splash_screen.dart';
 import 'package:movielog/services/genre_preferences.dart';
 import 'package:movielog/theme/app_theme.dart';
 import 'package:movielog/view_models/signup_view_model.dart';
@@ -177,76 +175,39 @@ void main() {
     );
   }
 
+  /// 저장된 토큰이 GET me 검증을 통과한 로그인 상태로 [initialLocation]을 엽니다.
+  /// [token]을 null로 주면 로그아웃 상태(로그인 화면)에서 시작합니다.
   Future<GoRouter> pumpApp(
     WidgetTester tester, {
-    String initialLocation = '/',
+    String initialLocation = '/start',
     TmdbMovieService? service,
     FakeRatingApiService? ratingService,
-    int? memberId,
+    String? token = 'saved-token',
   }) async {
     useTallScreen(tester);
-    final router = createAppRouter(initialLocation: initialLocation);
-    await tester.pumpWidget(
-      MovieLogApp(
-        router: router,
-        movieService: service ?? _FakeTmdbMovieService(),
-        signUpService: FakeSignUpService(),
-        ratingApiService:
-            ratingService ?? FakeRatingApiService((_) async => const []),
-        initialMemberId: memberId,
-      ),
+    final app = TestApp(
+      token: token,
+      movieService: service ?? _FakeTmdbMovieService(),
+      ratingApi: ratingService,
     );
+    await tester.pumpWidget(app.build(initialLocation: initialLocation));
     await tester.pumpAndSettle();
-    return router;
+    return app.router;
   }
 
   ChoiceChip chip(WidgetTester tester, String label) =>
       tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label));
 
-  testWidgets('StartScreen shows title and CTA button', (
+  testWidgets('Splash reuses the start layout with a progress indicator', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(theme: AppTheme.light, home: const StartScreen()),
+      MaterialApp(theme: AppTheme.light, home: const SplashScreen()),
     );
 
     expect(find.text('영화의 순간을\n기록하세요'), findsOneWidget);
-    expect(find.widgetWithText(ElevatedButton, '시작하기'), findsOneWidget);
-  });
-
-  testWidgets('Start -> Signup -> Movies, and back is blocked', (
-    WidgetTester tester,
-  ) async {
-    final router = await pumpApp(tester);
-
-    await tester.tap(find.text('시작하기'));
-    await tester.pumpAndSettle();
-    expect(find.text('회원가입'), findsOneWidget);
-    expect(router.canPop(), isFalse);
-
-    final fields = find.byType(TextFormField);
-    await tester.enterText(fields.at(0), '무비러버');
-    await tester.enterText(fields.at(1), 'movie@example.com');
-    await tester.enterText(fields.at(2), 'Movie123!');
-    // 닉네임·이메일 모두 중복 확인을 마쳐야 가입할 수 있습니다.
-    await tester.tap(find.text('중복 확인').at(0));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('중복 확인').at(1));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('필수 약관에 동의합니다'));
-    await tester.pump();
-    await tester.tap(find.text('가입하기'));
-    await tester.pumpAndSettle();
-
-    // 가입에 성공하면 영화 목록으로 이동합니다.
-    expect(router.state.uri.path, '/movies');
-    expect(find.text('회원가입이 완료됐어요. (학습용 memberId 42)'), findsOneWidget);
-    expect(router.canPop(), isFalse);
-
-    // 시스템 뒤로 가기를 눌러도 회원가입 화면으로 돌아가지 않습니다.
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(find.text('회원가입'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text('다시 시도'), findsNothing);
   });
 
   testWidgets('Home featured card opens detail and returns back', (
@@ -344,11 +305,7 @@ void main() {
   testWidgets('Mock detail cannot save rating, favorite snackbar works', (
     WidgetTester tester,
   ) async {
-    await pumpApp(
-      tester,
-      initialLocation: '/movies/under-the-starlight',
-      memberId: 42,
-    );
+    await pumpApp(tester, initialLocation: '/movies/under-the-starlight');
 
     // mock 영화는 TMDB id가 없어 평점 서버에 저장할 수 없습니다.
     expect(find.text('샘플 영화는 평점을 저장할 수 없어요.'), findsOneWidget);
@@ -374,12 +331,11 @@ void main() {
   testWidgets('TMDB movie card passes its id to detail and rating POST', (
     WidgetTester tester,
   ) async {
-    final ratingService = FakeRatingApiService((_) async => const []);
+    final ratingService = FakeRatingApiService();
     final router = await pumpApp(
       tester,
       initialLocation: '/movies',
       ratingService: ratingService,
-      memberId: 42,
     );
 
     await tester.tap(find.text('드라마 영화'));
@@ -402,10 +358,8 @@ void main() {
     await tester.tap(find.text('확인'));
     await tester.pumpAndSettle();
 
-    // 영화 배열 index가 아니라 TMDB id가 movieId로 갑니다.
-    final (memberId, request) = ratingService.creates.single;
-    expect(memberId, 42);
-    expect(request.toJson(), {'movieId': 2, 'score': 5});
+    // 영화 배열 index가 아니라 TMDB id가 movieId로 가고, memberId는 body에 없습니다.
+    expect(ratingService.creates.single.toJson(), {'movieId': 2, 'score': 5});
   });
 
   testWidgets('Detail opened by URL loads TMDB movie by id', (
@@ -447,20 +401,6 @@ void main() {
 
     expect(find.text('Cinema Archive'), findsOneWidget);
     expect(find.text('인기 영화'), findsOneWidget);
-  });
-
-  testWidgets('Profile edit opens a bottom sheet', (WidgetTester tester) async {
-    await pumpApp(tester, initialLocation: '/my');
-
-    await tester.tap(find.text('프로필 수정'));
-    await tester.pumpAndSettle();
-    expect(find.byType(BottomSheet), findsOneWidget);
-
-    await tester.enterText(find.byType(TextField).first, '시네필');
-    await tester.tap(find.text('저장'));
-    await tester.pumpAndSettle();
-    expect(find.text('시네필'), findsOneWidget);
-    expect(find.text('프로필을 수정했어요.'), findsOneWidget);
   });
 
   testWidgets('SignupScreen validates fields and toggles submit button', (
@@ -556,43 +496,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Cinema Archive'), findsOneWidget);
-  });
-
-  testWidgets('Profile edit sheet scrolls to save button on small screen', (
-    WidgetTester tester,
-  ) async {
-    tester.view.physicalSize = const Size(320, 480);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-
-    final router = createAppRouter(initialLocation: '/my');
-    await tester.pumpWidget(
-      MovieLogApp(router: router, movieService: _FakeTmdbMovieService()),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('프로필 수정'));
-    await tester.pumpAndSettle();
-
-    // 시트가 열린 상태에서 키보드가 올라온 상황을 흉내 냅니다.
-    tester.view.viewInsets = const FakeViewPadding(bottom: 260);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-
-    final saveButton = find.widgetWithText(FilledButton, '저장');
-    await tester.scrollUntilVisible(
-      saveButton,
-      50,
-      scrollable: find
-          .descendant(
-            of: find.byType(BottomSheet),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
-    await tester.tap(saveButton);
-    await tester.pumpAndSettle();
-    expect(find.text('프로필을 수정했어요.'), findsOneWidget);
   });
 
   testWidgets('Movies shows loading then success', (tester) async {
@@ -720,23 +623,28 @@ void main() {
     expect(find.text('드라마 영화'), findsOneWidget);
   });
 
-  testWidgets('Start buttons are reachable on short screen', (tester) async {
+  testWidgets('Splash retry button is reachable on short screen', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(320, 480);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
-      MaterialApp(theme: AppTheme.light, home: const StartScreen()),
+      MaterialApp(
+        theme: AppTheme.light,
+        home: SplashScreen(message: '확인 실패', onRetry: () {}),
+      ),
     );
 
     await tester.scrollUntilVisible(
-      find.text('시작하기'),
+      find.text('다시 시도'),
       100,
       scrollable: find.byType(Scrollable),
     );
     expect(tester.takeException(), isNull);
-    expect(find.text('로그인'), findsOneWidget);
-    expect(tester.getRect(find.text('시작하기')).bottom, lessThanOrEqualTo(480));
+    expect(find.text('확인 실패'), findsOneWidget);
+    expect(tester.getRect(find.text('다시 시도')).bottom, lessThanOrEqualTo(480));
   });
 
   testWidgets('Genre save failure keeps selection', (tester) async {

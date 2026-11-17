@@ -1,4 +1,5 @@
-/// 유저별 평점 조회 응답의 평점 한 건입니다.
+/// 평점 한 건입니다. 유저별 평점 조회의 배열 원소이자,
+/// v7 등록·수정 응답의 result입니다.
 class RatingDto {
   const RatingDto({
     required this.ratingId,
@@ -6,6 +7,7 @@ class RatingDto {
     required this.score,
     required this.comment,
     required this.createdAt,
+    this.updatedAt,
   });
 
   final int ratingId;
@@ -18,11 +20,18 @@ class RatingDto {
   final String? comment;
   final DateTime createdAt;
 
+  /// v7에서 추가된 마지막 수정 시각입니다. v6 응답처럼 없으면 null입니다.
+  final DateTime? updatedAt;
+
   factory RatingDto.fromJson(Map<String, dynamic> json) => RatingDto(
     ratingId: (json['ratingId'] as num).toInt(),
     movieId: (json['movieId'] as num).toInt(),
     score: (json['score'] as num).toInt(),
     comment: json['comment'] as String?,
     createdAt: DateTime.parse(json['createdAt'] as String),
+    updatedAt: switch (json['updatedAt']) {
+      final String value => DateTime.parse(value),
+      _ => null,
+    },
   );
 }

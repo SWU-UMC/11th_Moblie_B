@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 
 import '../data/models/create_member_request.dart';
 import '../theme/app_colors.dart';
-import '../view_models/learning_member_session.dart';
 import '../view_models/signup_view_model.dart';
 import '../widgets/movielog_app_bar.dart';
 import '../widgets/movielog_button.dart';
@@ -108,21 +107,20 @@ class _SignupScreenState extends State<SignupScreen> {
     );
     if (!mounted) return;
 
-    final memberId = viewModel.createdMemberId;
     final messenger = ScaffoldMessenger.of(context);
-    if (viewModel.submitStatus == SubmitStatus.success && memberId != null) {
-      // 받은 memberId를 앱 전체의 학습용 세션에 두고, 영화 상세·마이페이지에서 같은 값을 읽습니다.
-      context.read<LearningMemberSession>().setMemberId(memberId);
+    if (viewModel.submitStatus == SubmitStatus.success) {
+      // 가입은 인증이 아닙니다. 토큰은 로그인으로만 받으므로 로그인 화면으로 보냅니다.
+      // 이메일만 미리 채우고, 비밀번호는 넘기지 않습니다.
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text('회원가입이 완료됐어요. (학습용 memberId $memberId)'),
+          const SnackBar(
+            content: Text('회원가입이 완료됐어요. 로그인해 주세요.'),
             behavior: SnackBarBehavior.floating,
           ),
         );
       // go로 이동해 회원가입 화면을 스택에서 제거합니다.
-      context.go('/movies');
+      context.go('/login', extra: _emailController.text.trim());
       return;
     }
     final message = viewModel.snackbarMessage;
@@ -146,14 +144,20 @@ class _SignupScreenState extends State<SignupScreen> {
     final emailStatus = viewModel.emailCheckStatus;
     final isSubmitting = viewModel.isSubmitting;
 
-    // 2주차부터 회원가입 화면은 뒤로 가기를 막아 두었으므로, 제출 중 이탈도 함께 막힙니다.
+    // 8주차부터 회원가입은 로그인 화면에서 쌓아 엽니다. 제출 중에만 뒤로 가기를 막습니다.
     return PopScope(
-      canPop: false,
+      canPop: !isSubmitting,
       child: Scaffold(
         appBar: MovieLogAppBar(
           title: '회원가입',
           titleColor: colors.primary,
-          // 회원가입 화면에서는 뒤로 가기를 허용하지 않으므로 뒤로가기 버튼을 두지 않습니다.
+          leading: GoRouter.maybeOf(context)?.canPop() ?? false
+              ? IconButton(
+                  tooltip: '로그인으로 돌아가기',
+                  onPressed: isSubmitting ? null : () => context.pop(),
+                  icon: const Icon(Icons.arrow_back),
+                )
+              : null,
           automaticallyImplyLeading: false,
         ),
         body: SafeArea(
