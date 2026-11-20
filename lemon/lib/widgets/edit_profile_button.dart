@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 class EditProfileButton extends StatelessWidget {
   const EditProfileButton({super.key, required this.onPressed});
 
-  final VoidCallback onPressed;
+  /// null이면 비활성입니다. (내 정보를 아직 받지 못한 경우)
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {

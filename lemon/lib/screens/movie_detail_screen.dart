@@ -4,10 +4,12 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../data/models/rating_dto.dart';
 import '../data/models/tmdb_movie_dto.dart';
 import '../data/services/rating_api_service.dart';
 import '../models/movie.dart';
 import '../view_models/movie_detail_view_model.dart';
+import '../widgets/confirm_dialog.dart';
 import '../widgets/movielog_app_bar.dart';
 import '../widgets/rating_dialog.dart';
 import '../widgets/tmdb_poster_image.dart';
@@ -68,8 +70,9 @@ class MovieDetailScaffold extends StatelessWidget {
 
 /// 영화 상세 화면입니다.
 ///
-/// TMDB 영화라면 위에 [MovieDetailViewModel]이 있어 평점을 서버에 등록할 수 있고,
+/// TMDB 영화라면 위에 [MovieDetailViewModel]이 있어 토큰으로 평점을 등록·수정·삭제할 수 있고,
 /// mock 영화라면 ViewModel이 없어 평점 버튼을 막습니다.
+/// 등록 result로 받은 Rating 객체를 "내 평점" 카드로 보여주고, 같은 카드에서 수정·삭제합니다.
 class MovieDetailScreen extends StatefulWidget {
   const MovieDetailScreen({super.key, required this.movie});
 
@@ -86,26 +89,22 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final viewModel = context.watch<MovieDetailViewModel?>();
+    final myRating = viewModel?.myRating;
 
     return MovieDetailScaffold(
       body: _MovieDetailBody(
         movie: widget.movie,
-        myScore: viewModel?.lastSavedScore,
+        myRating: myRating,
+        onEdit: _openRatingDialog,
+        onDelete: _openDeleteDialog,
       ),
       bottomNavigationBar: _DetailActions(
         isFavorite: _isFavorite,
         onFavoritePressed: _toggleFavorite,
-        onRatePressed: viewModel != null && viewModel.canRate
-            ? _openRatingDialog
-            : null,
+        rateLabel: myRating == null ? '평점 남기기' : '평점 수정',
+        onRatePressed: viewModel != null ? _openRatingDialog : null,
         notice: viewModel == null
             ? const _RatingNotice(message: '샘플 영화는 평점을 저장할 수 없어요.')
-            : !viewModel.canRate
-            ? _RatingNotice(
-                message: '평점을 남기려면 학습용 회원가입이 필요해요.',
-                actionLabel: '회원가입',
-                onAction: () => context.go('/signup'),
-              )
             : null,
       ),
     );
@@ -116,26 +115,60 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     _showSnackBar(_isFavorite ? '즐겨찾기에 추가했어요.' : '즐겨찾기에서 삭제했어요.');
   }
 
+  /// 내 평점이 없으면 등록, 있으면 기존 별점·코멘트를 채운 같은 Dialog로 수정합니다.
+  /// PATCH는 전체 교체라 Dialog가 기존 comment를 채워 두어야 후기가 지워지지 않습니다.
   Future<void> _openRatingDialog() async {
     final viewModel = context.read<MovieDetailViewModel>();
+    final existing = viewModel.myRating;
     final saved = await showDialog<bool>(
       context: context,
       barrierDismissible: false, // 저장 중 바깥 탭으로 닫히는 것도 막습니다.
       builder: (_) => RatingDialog(
         movieTitle: viewModel.movie.title,
+        initialScore: existing?.score ?? 0,
+        initialComment: existing?.comment,
         onSubmit: (score, comment) async {
-          await viewModel.createRating(score: score, comment: comment);
-          if (viewModel.submitStatus != SubmitStatus.success) {
-            // Dialog가 입력을 유지한 채 서버 message를 보여줍니다.
-            throw RatingWriteFailure(viewModel.submitMessage ?? '저장에 실패했습니다.');
+          if (existing == null) {
+            await viewModel.createRating(score: score, comment: comment);
+          } else {
+            await viewModel.updateRating(score: score, comment: comment);
           }
+          _throwIfFailed(viewModel);
         },
       ),
     );
 
     // 저장 요청과 Snackbar 표시는 서로 다른 비동기 경계라 mounted를 다시 확인합니다.
     if (!mounted || saved != true) return;
-    _showSnackBar('평점을 등록했습니다. 마이페이지의 "내가 등록한 평점"에서 확인할 수 있습니다.');
+    _showSnackBar(existing == null ? '평점을 등록했습니다.' : '평점을 수정했습니다.');
+  }
+
+  /// 삭제는 확인 Dialog 안에서 진행하고, 실패하면 Dialog에 문구를 남깁니다.
+  Future<void> _openDeleteDialog() async {
+    final viewModel = context.read<MovieDetailViewModel>();
+    if (viewModel.myRating == null) return;
+    final deleted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => DeleteRatingDialog(
+        onConfirm: () async {
+          await viewModel.deleteRating();
+          _throwIfFailed(viewModel);
+        },
+      ),
+    );
+    if (!mounted || deleted != true) return;
+    _showSnackBar('평점을 삭제했습니다.');
+  }
+
+  /// Dialog가 입력을 유지한 채 문구를 보여주도록 실패를 예외로 바꿉니다.
+  /// 401이면 세션이 이미 정리되어 Router가 로그인 화면으로 이동합니다.
+  static void _throwIfFailed(MovieDetailViewModel viewModel) {
+    if (viewModel.submitStatus == SubmitStatus.success) return;
+    throw RatingWriteFailure(
+      viewModel.submitMessage ?? '저장에 실패했습니다.',
+      sessionExpired: viewModel.submitSessionExpired,
+    );
   }
 
   void _showSnackBar(String message) {
@@ -207,12 +240,19 @@ class MovieDetailData {
 }
 
 class _MovieDetailBody extends StatelessWidget {
-  const _MovieDetailBody({required this.movie, required this.myScore});
+  const _MovieDetailBody({
+    required this.movie,
+    required this.myRating,
+    required this.onEdit,
+    required this.onDelete,
+  });
 
   final MovieDetailData movie;
 
-  /// 이 화면에서 방금 서버에 등록한 별점입니다.
-  final int? myScore;
+  /// 이번 로그인 세션에서 이 영화에 등록한 평점입니다. (등록·수정 result의 Rating 객체)
+  final RatingDto? myRating;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -262,14 +302,12 @@ class _MovieDetailBody extends StatelessWidget {
                     ],
                   ],
                 ),
-                if (myScore != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    '내 평점 $myScore점 등록 완료',
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: colors.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
+                if (myRating case final rating?) ...[
+                  const SizedBox(height: 16),
+                  _MyRatingCard(
+                    rating: rating,
+                    onEdit: onEdit,
+                    onDelete: onDelete,
                   ),
                 ],
                 const SizedBox(height: 20),
@@ -347,13 +385,17 @@ class _DetailActions extends StatelessWidget {
     required this.isFavorite,
     required this.onFavoritePressed,
     required this.onRatePressed,
+    required this.rateLabel,
     this.notice,
   });
 
   final bool isFavorite;
   final VoidCallback onFavoritePressed;
 
-  /// null이면 평점 버튼이 비활성입니다. (mock 영화, 회원가입 전)
+  /// 내 평점이 없으면 "평점 남기기", 있으면 "평점 수정"입니다.
+  final String rateLabel;
+
+  /// null이면 평점 버튼이 비활성입니다. (mock 영화)
   final VoidCallback? onRatePressed;
 
   /// 평점 버튼을 누를 수 없는 이유입니다. 버튼 위에 보여줍니다.
@@ -405,7 +447,7 @@ class _DetailActions extends StatelessWidget {
                         shape: const StadiumBorder(),
                       ),
                       icon: const Icon(Icons.rate_review_outlined, size: 20),
-                      label: const Text('평점 남기기'),
+                      label: Text(rateLabel),
                     ),
                   ),
                 ],
@@ -418,18 +460,15 @@ class _DetailActions extends StatelessWidget {
   }
 }
 
-/// 평점 버튼을 누를 수 없는 이유와, 필요하면 바로 갈 수 있는 버튼입니다.
+/// 평점 버튼을 누를 수 없는 이유입니다.
 class _RatingNotice extends StatelessWidget {
-  const _RatingNotice({required this.message, this.actionLabel, this.onAction});
+  const _RatingNotice({required this.message});
 
   final String message;
-  final String? actionLabel;
-  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final actionLabel = this.actionLabel;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -444,8 +483,73 @@ class _RatingNotice extends StatelessWidget {
                   ?.copyWith(color: colors.onSurfaceVariant),
             ),
           ),
-          if (actionLabel != null)
-            TextButton(onPressed: onAction, child: Text(actionLabel)),
+        ],
+      ),
+    );
+  }
+}
+
+/// 이번 로그인 세션에서 등록한 내 평점 카드입니다. 수정·삭제 결과도 서버 응답으로 바로 바뀝니다.
+class _MyRatingCard extends StatelessWidget {
+  const _MyRatingCard({
+    required this.rating,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final RatingDto rating;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final comment = rating.comment;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: colors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.primary.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '내 평점 ${rating.score}점',
+                  style: textTheme.titleSmall?.copyWith(
+                    color: colors.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (comment != null && comment.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    comment,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: onEdit,
+            child: const Text('수정', semanticsLabel: '내 평점 수정'),
+          ),
+          TextButton(
+            onPressed: onDelete,
+            style: TextButton.styleFrom(foregroundColor: colors.error),
+            child: const Text('삭제', semanticsLabel: '내 평점 삭제'),
+          ),
         ],
       ),
     );
