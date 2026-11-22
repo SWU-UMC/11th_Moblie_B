@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 
+import '../core/network/api_error.dart';
 import '../data/models/rating_request.dart';
 import '../data/services/rating_api_service.dart';
 import 'movie_rating_input.dart';
@@ -103,6 +104,10 @@ class _RatingDialogState extends State<RatingDialog> {
       Navigator.pop(context, true);
     } catch (error) {
       if (!mounted) return;
+      if (error is DioException && !isSessionExpiredError(error)) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(writeErrorMessage(error))));
+      }
       setState(() {
         _isSubmitting = false;
         _errorText = error is DioException

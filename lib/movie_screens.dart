@@ -1,3 +1,4 @@
+import 'view_models/auth_view_model.dart';
 import 'view_models/movie_detail_view_model.dart';
 import 'view_models/submit_status.dart';
 import 'widgets/rating_dialog.dart';
@@ -22,7 +23,7 @@ void showNotice(BuildContext context, String message) {
     );
 }
 
-class MainScreen extends StatelessWidget {
+class MainScreen extends StatefulWidget {
   const MainScreen({
     super.key,
     required this.currentIndex,
@@ -32,11 +33,24 @@ class MainScreen extends StatelessWidget {
   final Widget child;
 
   @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AuthViewModel>().loadMember();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: child,
+      body: widget.child,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: currentIndex,
+        selectedIndex: widget.currentIndex,
         onDestinationSelected: (index) {
           const paths = ['/home', '/movies', '/my'];
           context.go(paths[index]);
@@ -514,8 +528,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                 ),
                 const SizedBox(height: 16),
                 Chip(label: Text(movie.genre)),
-                if (vm.memberId == null) ...[
-                  const Text('평점 등록은 학습용 회원가입 후 이용할 수 있습니다.'),
+                if (!vm.canRate) ...[
+                  const Text('평점 등록은 로그인 후 이용할 수 있습니다.'),
                   TextButton(
                     onPressed: () => context.go('/register'),
                     child: const Text('회원가입'),
@@ -549,8 +563,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed:
-                      vm.memberId == null ||
-                          vm.submitStatus == SubmitStatus.submitting
+                      !vm.canRate || vm.submitStatus == SubmitStatus.submitting
                       ? null
                       : openRatingDialog,
                   icon: const Icon(Icons.rate_review_outlined),
@@ -571,14 +584,23 @@ class MyPageScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final auth = context.watch<AuthViewModel>();
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
         title: const Text('내 프로필'),
+        actions: [
+          TextButton(onPressed: auth.logout, child: const Text('로그아웃')),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          if (auth.memberStatus == MemberLoadStatus.error)
+            TextButton(
+              onPressed: () => auth.loadMember(force: true),
+              child: const Text('내 정보 다시 시도'),
+            ),
           const SizedBox(height: 24),
           Center(
             child: CircleAvatar(
@@ -594,19 +616,24 @@ class MyPageScreen extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            '무비러버',
+            auth.member?.nickname ?? '내 정보 확인 중',
             textAlign: TextAlign.center,
             style: theme.textTheme.headlineLarge,
           ),
           const SizedBox(height: 12),
           Text(
-            '매주 주말엔 영화관으로 출근하는 프로 관람객. 좋은 영화를 보고 기록하는 것을 좋아합니다.',
+            auth.member?.email ?? auth.message ?? '',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyLarge,
           ),
           const SizedBox(height: 24),
           Center(
-            child: OutlinedButton(onPressed: null, child: const Text('프로필 수정')),
+            child: OutlinedButton(
+              onPressed: auth.member == null
+                  ? null
+                  : () => context.push('/my/profile/edit'),
+              child: const Text('프로필 수정'),
+            ),
           ),
           const SizedBox(height: 24),
           const Row(

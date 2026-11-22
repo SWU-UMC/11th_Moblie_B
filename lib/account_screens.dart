@@ -1,5 +1,4 @@
 import 'data/models/create_member_request.dart';
-import 'view_models/learning_member_session.dart';
 import 'view_models/submit_status.dart';
 
 import 'package:provider/provider.dart';
@@ -8,7 +7,7 @@ import 'view_models/sign_up_view_model.dart';
 import 'widgets/movielog_button.dart';
 
 // 대화에서 완성한 2주차 입력 검증 구조를 재사용한 화면입니다.
-// v6 회원가입 결과를 학습용 메모리 세션에 전달합니다.
+// 회원가입 후 로그인 화면에서 서버 인증을 진행합니다.
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -113,9 +112,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
     if (!mounted) return;
     if (vm.submitStatus == SubmitStatus.success && vm.createdMemberId != null) {
-      context.read<LearningMemberSession>().setMemberId(vm.createdMemberId!);
       passwordController.clear();
-      context.go('/movies');
+      context.go('/login');
       return;
     }
     if (vm.snackbarMessage != null) {
@@ -347,7 +345,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                     children: [
                                       const Text('이미 계정이 있나요?'),
                                       TextButton(
-                                        onPressed: null,
+                                        onPressed:
+                                            vm.submitStatus ==
+                                                SubmitStatus.submitting
+                                            ? null
+                                            : () => context.go('/login'),
                                         child: const Text('로그인'),
                                       ),
                                     ],
