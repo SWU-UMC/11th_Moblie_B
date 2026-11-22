@@ -1,3 +1,7 @@
+import 'view_models/movie_detail_view_model.dart';
+import 'view_models/submit_status.dart';
+import 'widgets/rating_dialog.dart';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
@@ -102,7 +106,8 @@ class HomeScreen extends StatelessWidget {
               const SizedBox(height: 24),
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => context.push('/movies/${movie.id}', extra: movie),
+                onTap: () =>
+                    context.push('/movies/${movie.id}', extra: movie.tmdbMovie),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(24),
                   child: Stack(
@@ -162,7 +167,7 @@ class HomeScreen extends StatelessWidget {
                               child: ElevatedButton.icon(
                                 onPressed: () => context.push(
                                   '/movies/${movie.id}',
-                                  extra: movie,
+                                  extra: movie.tmdbMovie,
                                 ),
                                 icon: const Icon(Icons.info),
                                 label: const Text('상세보기'),
@@ -219,7 +224,7 @@ class MovieCard extends StatelessWidget {
     final theme = Theme.of(context);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => context.push('/movies/${movie.id}', extra: movie),
+      onTap: () => context.push('/movies/${movie.id}', extra: movie.tmdbMovie),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -410,24 +415,31 @@ class MovieListError extends StatelessWidget {
 }
 
 class MovieDetailScreen extends StatefulWidget {
-  const MovieDetailScreen({super.key, required this.movie});
-  final Movie movie;
+  const MovieDetailScreen({super.key});
   @override
   State<MovieDetailScreen> createState() => _MovieDetailScreenState();
 }
 
 class _MovieDetailScreenState extends State<MovieDetailScreen> {
   bool isFavorite = false;
-  double? myRating;
-
   Future<void> openRatingDialog() async {
-    final result = await showDialog<double>(
+    final vm = context.read<MovieDetailViewModel>();
+    final saved = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) =>
-          RatingDialog(movieId: widget.movie.id, initialRating: myRating ?? 0),
+      barrierDismissible: false,
+      builder: (_) => RatingDialog(
+        onSubmit: (score, comment) async {
+          await vm.createRating(score: score, comment: comment);
+          if (vm.submitStatus != SubmitStatus.success) {
+            final message = vm.submitMessage ?? '저장에 실패했습니다.';
+            if (mounted) showNotice(context, message);
+            throw StateError(message);
+          }
+        },
+      ),
     );
-    if (!mounted || result == null) return;
-    setState(() => myRating = result);
+    if (!mounted || saved != true) return;
+    showNotice(context, '평점을 등록했습니다. 마이페이지의 "내가 등록한 평점"에서 확인할 수 있습니다.');
   }
 
   void toggleFavorite() {
@@ -438,7 +450,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final movie = widget.movie;
+    final vm = context.watch<MovieDetailViewModel>();
+    final movie = Movie.fromTmdb(vm.movie);
     return Scaffold(
       appBar: AppBar(
         centerTitle: true,
@@ -501,11 +514,13 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                 ),
                 const SizedBox(height: 16),
                 Chip(label: Text(movie.genre)),
-                if (myRating != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text('내 평점: ${myRating!.toStringAsFixed(1)}점'),
+                if (vm.memberId == null) ...[
+                  const Text('평점 등록은 학습용 회원가입 후 이용할 수 있습니다.'),
+                  TextButton(
+                    onPressed: () => context.go('/register'),
+                    child: const Text('회원가입'),
                   ),
+                ],
                 const Divider(height: 40),
                 Text('시놉시스', style: theme.textTheme.headlineMedium),
                 const SizedBox(height: 16),
@@ -533,107 +548,17 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: openRatingDialog,
+                  onPressed:
+                      vm.memberId == null ||
+                          vm.submitStatus == SubmitStatus.submitting
+                      ? null
+                      : openRatingDialog,
                   icon: const Icon(Icons.rate_review_outlined),
                   label: const Text('평점 남기기'),
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class MovieRatingInput extends StatelessWidget {
-  const MovieRatingInput({
-    super.key,
-    required this.rating,
-    required this.onChanged,
-  });
-  final double rating;
-  final ValueChanged<double> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return RatingBar.builder(
-      initialRating: rating,
-      minRating: 0.5,
-      allowHalfRating: true,
-      itemCount: 5,
-      itemSize: 36,
-      itemBuilder: (context, index) =>
-          Icon(Icons.star, color: Theme.of(context).colorScheme.primary),
-      onRatingUpdate: onChanged,
-    );
-  }
-}
-
-class RatingDialog extends StatefulWidget {
-  const RatingDialog({
-    super.key,
-    required this.movieId,
-    required this.initialRating,
-  });
-  final int movieId;
-  final double initialRating;
-  @override
-  State<RatingDialog> createState() => _RatingDialogState();
-}
-
-class _RatingDialogState extends State<RatingDialog> {
-  late double rating;
-
-  @override
-  void initState() {
-    super.initState();
-    rating = widget.initialRating;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '영화는 어떠셨나요?',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 24),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: MovieRatingInput(
-                rating: rating,
-                onChanged: (value) => setState(() => rating = value),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(rating == 0 ? '별점을 선택해주세요.' : '${rating.toStringAsFixed(1)}점'),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('취소'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: rating > 0
-                        ? () => Navigator.of(context).pop(rating)
-                        : null,
-                    child: const Text('저장'),
-                  ),
-                ),
-              ],
-            ),
-          ],
         ),
       ),
     );

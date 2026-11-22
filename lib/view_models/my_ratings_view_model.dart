@@ -6,8 +6,6 @@ import '../data/models/rating_with_movie.dart';
 import '../data/services/rating_api_service.dart';
 import '../data/services/tmdb_movie_service.dart';
 
-const int sampleMemberId = 1;
-
 enum MyRatingsLoadStatus { idle, loading, success, empty, error }
 
 class MyRatingsViewModel extends ChangeNotifier {
@@ -21,11 +19,14 @@ class MyRatingsViewModel extends ChangeNotifier {
   List<RatingWithMovie> ratings = const [];
   MyRatingsLoadStatus status = MyRatingsLoadStatus.idle;
   String? message;
+  String? refreshWarning;
+  bool isWriting = false;
   Future<void> load() async {
     if (_disposed) return;
     final version = ++_requestVersion;
     status = MyRatingsLoadStatus.loading;
     message = null;
+    refreshWarning = null;
     notifyListeners();
     try {
       final raw = await _service.fetchMyRatings(memberId);
@@ -60,8 +61,67 @@ class MyRatingsViewModel extends ChangeNotifier {
       if (_disposed || version != _requestVersion) return;
       status = MyRatingsLoadStatus.error;
       message = writeMyRatingsErrorMessage(error);
+    } catch (_) {
+      if (_disposed || version != _requestVersion) return;
+      status = MyRatingsLoadStatus.error;
+      message = '평점 응답을 읽지 못했습니다. 조회만 다시 시도해 주세요.';
     }
     if (!_disposed && version == _requestVersion) notifyListeners();
+  }
+
+  Future<void> _refreshAfterWrite() async {
+    await load();
+    if (_disposed) return;
+    refreshWarning = status == MyRatingsLoadStatus.error
+        ? '저장은 완료됐지만 목록을 불러오지 못했습니다. 조회만 다시 시도해 주세요.'
+        : null;
+    notifyListeners();
+  }
+
+  Future<void> updateRating({
+    required int ratingId,
+    required int score,
+    String? comment,
+  }) async {
+    await _writeAndRefresh(
+      () => _service.updateRating(
+        memberId: memberId,
+        ratingId: ratingId,
+        score: score,
+        comment: comment,
+      ),
+    );
+  }
+
+  Future<void> deleteRating(int ratingId) async {
+    await _writeAndRefresh(
+      () => _service.deleteRating(memberId: memberId, ratingId: ratingId),
+    );
+  }
+
+  Future<void> _writeAndRefresh(Future<void> Function() write) async {
+    if (_disposed || isWriting) throw StateError('이미 요청 중입니다.');
+    isWriting = true;
+    notifyListeners();
+    try {
+      try {
+        await write();
+      } on DioException catch (error) {
+        if (_disposed) rethrow;
+        final writeMessage = writeErrorMessage(error);
+        if (shouldRefreshAfterRatingError(error)) await load();
+        if (!_disposed) {
+          message = writeMessage;
+          notifyListeners();
+        }
+        rethrow;
+      }
+      if (_disposed) return;
+      await _refreshAfterWrite(); // 조회 실패는 쓰기 실패로 던지지 않습니다.
+    } finally {
+      isWriting = false;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   @override

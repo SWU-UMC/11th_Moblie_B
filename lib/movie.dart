@@ -14,6 +14,7 @@ class Movie {
     required this.synopsis,
     this.posterPath,
     this.isTmdb = false,
+    this.tmdbMovie,
   });
 
   // 기존 상세·평점 UI에서도 TMDB id를 그대로 보존합니다.
@@ -27,6 +28,7 @@ class Movie {
         .join(' · ');
     return Movie(
       id: dto.id,
+      tmdbMovie: dto,
       title: dto.title,
       genre: names.isEmpty ? '영화' : names,
       year: DateTime.tryParse(dto.releaseDate ?? '')?.year ?? 0,
@@ -38,6 +40,7 @@ class Movie {
       synopsis: dto.overview.isEmpty ? '줄거리 정보가 없어요.' : dto.overview,
     );
   }
+  final TmdbMovieDto? tmdbMovie;
   final String? posterPath;
   final bool isTmdb;
   final int id;

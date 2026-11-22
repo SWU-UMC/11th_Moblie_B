@@ -1,3 +1,10 @@
+import 'package:dio/dio.dart';
+
+import '../data/services/rating_api_service.dart';
+import '../data/models/rating_dto.dart';
+import '../view_models/learning_member_session.dart';
+import '../widgets/rating_dialog.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -16,9 +23,11 @@ class MyRatingsScreen extends StatelessWidget {
     ),
     body: Column(
       children: [
-        const Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('학습용 회원 1번의 공개 평점입니다.'),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            '학습용 회원 ${context.watch<MyRatingsViewModel>().memberId}의 평점입니다.',
+          ),
         ),
         Expanded(
           child: Consumer<MyRatingsViewModel>(
@@ -35,10 +44,11 @@ class MyRatingsScreen extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (vm.refreshWarning != null) Text(vm.refreshWarning!),
                         Text(vm.message ?? '평점을 불러오지 못했습니다.'),
                         const SizedBox(height: 16),
                         MovieLogButton(
-                          label: '다시 시도',
+                          label: '조회 재시도',
                           width: 120,
                           onPressed: vm.load,
                         ),
@@ -90,6 +100,35 @@ class MyRatingsScreen extends StatelessWidget {
                                   ],
                                 ),
                               ),
+                              if (context
+                                      .watch<LearningMemberSession>()
+                                      .memberId ==
+                                  vm.memberId)
+                                Column(
+                                  children: [
+                                    TextButton(
+                                      onPressed: vm.isWriting
+                                          ? null
+                                          : () => onEditPressed(
+                                              context,
+                                              entry.rating,
+                                            ),
+                                      child: const Text('수정'),
+                                    ),
+                                    TextButton(
+                                      onPressed: vm.isWriting
+                                          ? null
+                                          : () => onDeletePressed(
+                                              context,
+                                              entry.rating,
+                                            ),
+                                      child: const Text(
+                                        '삭제',
+                                        style: TextStyle(color: Colors.red),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                             ],
                           ),
                         ),
@@ -104,4 +143,93 @@ class MyRatingsScreen extends StatelessWidget {
       ],
     ),
   );
+}
+
+Future<void> onEditPressed(BuildContext context, RatingDto rating) async {
+  final vm = context.read<MyRatingsViewModel>();
+  await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => RatingDialog(
+      initialScore: rating.score,
+      initialComment: rating.comment,
+      onSubmit: (score, comment) => vm.updateRating(
+        ratingId: rating.ratingId,
+        score: score,
+        comment: comment,
+      ),
+    ),
+  );
+}
+
+Future<void> onDeletePressed(BuildContext context, RatingDto rating) async {
+  final vm = context.read<MyRatingsViewModel>();
+  await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) =>
+        _DeleteRatingDialog(onConfirm: () => vm.deleteRating(rating.ratingId)),
+  );
+}
+
+class _DeleteRatingDialog extends StatefulWidget {
+  const _DeleteRatingDialog({required this.onConfirm});
+  final Future<void> Function() onConfirm;
+  @override
+  State<_DeleteRatingDialog> createState() => _DeleteRatingDialogState();
+}
+
+class _DeleteRatingDialogState extends State<_DeleteRatingDialog> {
+  bool _isDeleting = false;
+  String? _errorText;
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_isDeleting,
+    child: AlertDialog(
+      title: const Text('평점을 삭제할까요?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('삭제한 평점은 복구할 수 없습니다.'),
+          if (_errorText != null)
+            Text(_errorText!, style: const TextStyle(color: Colors.red)),
+        ],
+      ),
+      actions: [
+        MovieLogButton(
+          label: '취소',
+          onPressed: _isDeleting ? null : () => Navigator.pop(context, false),
+        ),
+        MovieLogButton(
+          label: '삭제',
+          isLoading: _isDeleting,
+          onPressed: _isDeleting ? null : _onConfirm,
+        ),
+      ],
+    ),
+  );
+  Future<void> _onConfirm() async {
+    if (_isDeleting) return;
+    setState(() {
+      _isDeleting = true;
+      _errorText = null;
+    });
+    try {
+      await widget.onConfirm();
+      if (!mounted) return;
+      setState(() => _isDeleting = false);
+      Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is DioException
+          ? writeErrorMessage(error)
+          : '삭제하지 못했습니다. 목록을 확인한 뒤 다시 시도해 주세요.';
+      setState(() {
+        _isDeleting = false;
+        _errorText = message;
+      });
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
 }
