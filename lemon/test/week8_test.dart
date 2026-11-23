@@ -81,11 +81,11 @@ void main() {
       adapter = _RecordingAdapter((_) => (200, '[]'));
       final dio = authDio(InMemoryTokenStorage('secret-token'));
 
-      await dio.get('/v7/members/me');
-      await dio.post('/v7/ratings');
-      await dio.delete('/v7/ratings/9');
-      await dio.get('/v7/members/1/ratings'); // 공개 조회
-      await dio.post('/v7/auth/login'); // 로그인
+      await dio.get('/v8/members/me');
+      await dio.post('/v8/ratings');
+      await dio.delete('/v8/ratings/9');
+      await dio.get('/v8/members/1/ratings'); // 공개 조회
+      await dio.post('/v8/auth/login'); // 로그인
 
       expect(adapter.authHeaders, [
         'Bearer secret-token',
@@ -99,7 +99,7 @@ void main() {
         AuthInterceptor.isProtected(
           RequestOptions(
             baseUrl: 'https://api.themoviedb.org/3',
-            path: '/v7/ratings',
+            path: '/v8/ratings',
           ),
         ),
         isFalse,
@@ -110,7 +110,7 @@ void main() {
       adapter = _RecordingAdapter((_) => (200, '{}'));
       final dio = authDio(InMemoryTokenStorage(null));
       await dio.get(
-        '/v7/members/me',
+        '/v8/members/me',
         options: Options(headers: {'Authorization': 'Bearer TMDB-token'}),
       );
       expect(adapter.authHeaders, [null]);
@@ -122,7 +122,7 @@ void main() {
         adapter = _RecordingAdapter((_) => (200, '{}'));
         final storage = InMemoryTokenStorage('t')..fail = true;
         await expectLater(
-          authDio(storage).get('/v7/members/me'),
+          authDio(storage).get('/v8/members/me'),
           throwsA(
             isA<DioException>().having((e) => e.error, 'error', isStateError),
           ),
@@ -147,13 +147,13 @@ void main() {
       final dio = authDio(InMemoryTokenStorage('stored-jwt'))
         ..interceptors.add(MovieLogLoggingInterceptor());
       await dio.post(
-        '/v7/auth/login',
+        '/v8/auth/login',
         data: const LoginRequest(
           email: 'movie@example.com',
           password: 'Secret123!',
         ).toJson(),
       );
-      await dio.get('/v7/members/me');
+      await dio.get('/v8/members/me');
 
       final all = logs.join('\n');
       expect(all, isNot(contains('jwt-from-server')));
@@ -164,7 +164,7 @@ void main() {
       expect(all, contains('accessToken: ***'));
     });
 
-    test('v7 services use token paths without memberId', () async {
+    test('v8 services use token paths without memberId', () async {
       adapter = _RecordingAdapter((request) {
         final rating =
             '{"ratingId":12,"movieId":550,"score":4,"comment":"좋아요",'
@@ -177,12 +177,12 @@ void main() {
             '{"isSuccess":true,"code":"COMMON200","message":"ok",'
             '"result":$result}';
         return switch (request.method) {
-          'POST' when request.path == '/v7/auth/login' => (
+          'POST' when request.path == '/v8/auth/login' => (
             200,
             ok('{"nickname":"무비러버","accessToken":"jwt"}'),
           ),
           'POST' => (201, ok(rating)),
-          'PATCH' when request.path == '/v7/members/me' => (200, ok(member)),
+          'PATCH' when request.path == '/v8/members/me' => (200, ok(member)),
           'PATCH' => (200, ok(rating)),
           'DELETE' => (200, ok('null')),
           _ => (200, ok(member)),
@@ -213,12 +213,12 @@ void main() {
       expect(me.nickname, '새닉네임');
       expect(renamed.email, 'movie@example.com');
       expect(adapter.requests, [
-        ('POST', '/v7/auth/login'),
-        ('POST', '/v7/ratings'),
-        ('PATCH', '/v7/ratings/12'),
-        ('DELETE', '/v7/ratings/12'),
-        ('GET', '/v7/members/me'),
-        ('PATCH', '/v7/members/me'),
+        ('POST', '/v8/auth/login'),
+        ('POST', '/v8/ratings'),
+        ('PATCH', '/v8/ratings/12'),
+        ('DELETE', '/v8/ratings/12'),
+        ('GET', '/v8/members/me'),
+        ('PATCH', '/v8/members/me'),
       ]);
       // 등록 body에 memberId가 없고, PATCH는 전체 교체라 comment를 명시적으로 보냅니다.
       expect(jsonDecode(adapter.bodies[1]), {
@@ -283,7 +283,7 @@ void main() {
 
     test('AUTH401_3 on restore deletes the token and marks expiry', () async {
       storage.token = 'broken';
-      memberApi.onFetch = () async => throw fakeInvalidToken('/v7/members/me');
+      memberApi.onFetch = () async => throw fakeInvalidToken('/v8/members/me');
       final auth = create();
       await auth.restoreSession();
       expect(auth.status, AuthStatus.signedOut);
@@ -295,7 +295,7 @@ void main() {
       storage.token = 'valid';
       var calls = 0;
       memberApi.onFetch = () async {
-        if (calls++ == 0) throw fakeDioError('/v7/members/me');
+        if (calls++ == 0) throw fakeDioError('/v8/members/me');
         return fakeMember;
       };
       final auth = create();
@@ -318,7 +318,7 @@ void main() {
 
     test('AUTH401_1 is a form error, not a session expiry', () async {
       authApi.onLogin = (_) async => throw fakeCommonError(
-        '/v7/auth/login',
+        '/v8/auth/login',
         401,
         'AUTH401_1',
         '이메일 또는 비밀번호가 올바르지 않습니다.',
@@ -335,7 +335,7 @@ void main() {
     test('login and storage failures use different messages', () async {
       final auth = create();
       await auth.restoreSession();
-      authApi.onLogin = (_) async => throw fakeDioError('/v7/auth/login');
+      authApi.onLogin = (_) async => throw fakeDioError('/v8/auth/login');
       await auth.login('a@b.com', 'p');
       final networkMessage = auth.message;
 
@@ -415,7 +415,7 @@ void main() {
       final auth = create();
       await auth.restoreSession();
       await auth.login('a@b.com', 'p');
-      memberApi.onFetch = () async => throw fakeDioError('/v7/members/me');
+      memberApi.onFetch = () async => throw fakeDioError('/v8/members/me');
       await auth.loadMember();
       expect(auth.status, AuthStatus.signedIn);
       expect(auth.memberStatus, MemberLoadStatus.error);
@@ -452,7 +452,7 @@ void main() {
     test('403 informs only and keeps the user signed in', () async {
       final created = await ratings.create(movieId: 550, score: 5);
       ratingApi.onUpdate = (_, _, _) async => throw fakeCommonError(
-        '/v7/ratings/${created.ratingId}',
+        '/v8/ratings/${created.ratingId}',
         403,
         'RATING403_1',
         '본인이 작성한 평점만 수정하거나 삭제할 수 있습니다.',
@@ -472,7 +472,7 @@ void main() {
     test('RATING404_1 removes the stale card', () async {
       final created = await ratings.create(movieId: 550, score: 5);
       ratingApi.onDelete = (_) async => throw fakeCommonError(
-        '/v7/ratings/${created.ratingId}',
+        '/v8/ratings/${created.ratingId}',
         404,
         'RATING404_1',
         '해당 평점을 찾을 수 없습니다.',
@@ -487,7 +487,7 @@ void main() {
 
     test('RATING409_1 tells the user to check the existing record', () async {
       ratingApi.onCreate = (_) async => throw fakeCommonError(
-        '/v7/ratings',
+        '/v8/ratings',
         409,
         'RATING409_1',
         '이미 이 영화에 평점을 남기셨습니다.',
@@ -507,7 +507,7 @@ void main() {
 
     test('AUTH401_4 expires the session', () async {
       ratingApi.onCreate = (_) async => throw fakeCommonError(
-        '/v7/ratings',
+        '/v8/ratings',
         401,
         'AUTH401_4',
         '토큰이 만료되었습니다. 다시 로그인해주세요.',
@@ -579,7 +579,7 @@ void main() {
         app: TestApp(
           memberApi: FakeMemberApiService(
             onFetch: () async {
-              if (calls++ == 0) throw fakeDioError('/v7/members/me');
+              if (calls++ == 0) throw fakeDioError('/v8/members/me');
               return fakeMember;
             },
           ),
@@ -626,7 +626,7 @@ void main() {
         onLogin: (request) async {
           if (request.password != 'Right123!') {
             throw fakeCommonError(
-              '/v7/auth/login',
+              '/v8/auth/login',
               401,
               'AUTH401_1',
               '이메일 또는 비밀번호가 올바르지 않습니다.',
@@ -725,7 +725,7 @@ void main() {
     ) async {
       final app = await pumpApp(tester, initialLocation: '/my');
       app.memberApi.onFetch = () async =>
-          throw fakeInvalidToken('/v7/members/me');
+          throw fakeInvalidToken('/v8/members/me');
 
       final refresh = find.text('내 정보 새로고침');
       await tester.ensureVisible(refresh);
@@ -742,7 +742,7 @@ void main() {
         tester,
         app: TestApp(
           memberApi: FakeMemberApiService(
-            onFetch: () async => throw fakeInvalidToken('/v7/members/me'),
+            onFetch: () async => throw fakeInvalidToken('/v8/members/me'),
           ),
         ),
       );
@@ -821,7 +821,7 @@ void main() {
         app: TestApp(
           memberApi: FakeMemberApiService(
             onUpdate: (_) async => throw fakeCommonError(
-              '/v7/members/me',
+              '/v8/members/me',
               409,
               'MEMBER409_1',
               '이미 사용 중인 닉네임입니다.',
@@ -862,7 +862,7 @@ void main() {
         tester,
         app: TestApp(
           memberApi: FakeMemberApiService(
-            onUpdate: (_) async => throw fakeDioError('/v7/members/me'),
+            onUpdate: (_) async => throw fakeDioError('/v8/members/me'),
           ),
         ),
       );
@@ -909,6 +909,9 @@ void main() {
       });
 
       // 수정: 기존 별점·코멘트가 채워진 채 열리고, 둘 다 함께 보냅니다.
+      // (9주차부터 제목 옆에 북마크가 있어 카드가 아래로 내려갔으므로 먼저 스크롤합니다)
+      await tester.ensureVisible(find.text('수정'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('수정'));
       await tester.pumpAndSettle();
       expect(filledStars(), findsNWidgets(4));
@@ -943,7 +946,7 @@ void main() {
       tester,
     ) async {
       final ratingApi = FakeRatingApiService(
-        onCreate: (_) async => throw fakeInvalidToken('/v7/ratings'),
+        onCreate: (_) async => throw fakeInvalidToken('/v8/ratings'),
       );
       final app = await pumpApp(
         tester,
@@ -965,7 +968,7 @@ void main() {
     testWidgets('409 keeps the dialog and the user signed in', (tester) async {
       final ratingApi = FakeRatingApiService(
         onCreate: (_) async => throw fakeCommonError(
-          '/v7/ratings',
+          '/v8/ratings',
           409,
           'RATING409_1',
           '이미 이 영화에 평점을 남기셨습니다.',
@@ -1154,7 +1157,7 @@ void main() {
         await viewModel.load();
         ratingApi.onDelete = (ratingId) async {
           await gate.future;
-          throw fakeDioError('/v7/ratings/$ratingId'); // 타임아웃 같은 일반 실패
+          throw fakeDioError('/v8/ratings/$ratingId'); // 타임아웃 같은 일반 실패
         };
         viewModel
           ..startSelection()

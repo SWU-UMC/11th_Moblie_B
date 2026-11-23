@@ -7,6 +7,8 @@ import 'package:go_router/go_router.dart';
 import 'package:movielog/core/storage/token_storage.dart';
 import 'package:movielog/data/models/common_response.dart';
 import 'package:movielog/data/models/create_member_request.dart';
+import 'package:movielog/data/models/favorite_check_dto.dart';
+import 'package:movielog/data/models/favorite_response_dto.dart';
 import 'package:movielog/data/models/login_models.dart';
 import 'package:movielog/data/models/member_info.dart';
 import 'package:movielog/data/models/rating_dto.dart';
@@ -15,6 +17,7 @@ import 'package:movielog/data/models/sign_up_models.dart';
 import 'package:movielog/data/models/tmdb_movie_dto.dart';
 import 'package:movielog/data/models/tmdb_movie_page.dart';
 import 'package:movielog/data/services/auth_api_service.dart';
+import 'package:movielog/data/services/favorite_api_service.dart';
 import 'package:movielog/data/services/member_api_service.dart';
 import 'package:movielog/data/services/rating_api_service.dart';
 import 'package:movielog/data/services/sign_up_service.dart';
@@ -194,7 +197,7 @@ class FakeSignUpService extends SignUpService {
   Future<bool> _answer(String value) async {
     final waitFor = gate;
     if (waitFor != null) await waitFor.future;
-    if (fail) throw fakeDioError('/v7/members');
+    if (fail) throw fakeDioError('/v8/members');
     return !taken.contains(value.trim());
   }
 }
@@ -299,6 +302,90 @@ class FakeMovieLookupService extends TmdbMovieService {
       );
 }
 
+/// 서버처럼 계정별 즐겨찾기를 메모리에 두는 Service입니다.
+/// [account]로 지금 JWT가 어느 계정인지 흉내 냅니다. handler를 넣으면 그 결과를 씁니다.
+class FakeFavoriteApiService extends FavoriteApiService {
+  FakeFavoriteApiService() : super(Dio());
+
+  String account = 'movie@example.com';
+  final store = <String, List<FavoriteResponseDto>>{};
+  int _nextId = 1;
+
+  Future<List<FavoriteResponseDto>> Function()? onList;
+  Future<FavoriteCheckDto> Function(int movieId)? onCheck;
+  Future<FavoriteResponseDto> Function(int movieId)? onAdd;
+  Future<void> Function(int movieId)? onDelete;
+
+  /// 순서 확인용 호출 기록입니다. (예: ['GET 550', 'POST 550'])
+  final log = <String>[];
+
+  List<FavoriteResponseDto> get _mine => store.putIfAbsent(account, () => []);
+
+  void seed(String account, List<int> movieIds) {
+    store[account] = [
+      for (final (index, id) in movieIds.indexed)
+        FavoriteResponseDto(
+          favoriteId: _nextId++,
+          movieId: id,
+          createdAt: DateTime.utc(2026, 11, 1, 0, index),
+        ),
+    ];
+  }
+
+  @override
+  Future<List<FavoriteResponseDto>> fetchMyFavorites() async {
+    log.add('LIST');
+    final handler = onList;
+    if (handler != null) return handler();
+    return List.of(_mine);
+  }
+
+  @override
+  Future<FavoriteCheckDto> checkFavorite({required int movieId}) async {
+    log.add('GET $movieId');
+    final handler = onCheck;
+    if (handler != null) return handler(movieId);
+    return FavoriteCheckDto(
+      movieId: movieId,
+      isFavorite: _mine.any((favorite) => favorite.movieId == movieId),
+    );
+  }
+
+  @override
+  Future<FavoriteResponseDto> addFavorite({required int movieId}) async {
+    log.add('POST $movieId');
+    final handler = onAdd;
+    if (handler != null) return handler(movieId);
+    if (_mine.any((favorite) => favorite.movieId == movieId)) {
+      throw fakeCommonError('/v8/favorites', 409, 'FAVORITE409_1', '이미 등록');
+    }
+    final favorite = FavoriteResponseDto(
+      favoriteId: _nextId++,
+      movieId: movieId,
+      createdAt: DateTime.utc(2026, 11, 2),
+    );
+    _mine.add(favorite);
+    return favorite;
+  }
+
+  @override
+  Future<void> deleteFavorite({required int movieId}) async {
+    log.add('DELETE $movieId');
+    final handler = onDelete;
+    if (handler != null) return handler(movieId);
+    final before = _mine.length;
+    _mine.removeWhere((favorite) => favorite.movieId == movieId);
+    if (_mine.length == before) {
+      throw fakeCommonError(
+        '/v8/favorites/$movieId',
+        404,
+        'FAVORITE404_1',
+        '즐겨찾기 없음',
+      );
+    }
+  }
+}
+
 RatingDto fakeRating(int ratingId, int movieId, int score, {String? comment}) =>
     RatingDto(
       ratingId: ratingId,
@@ -331,12 +418,14 @@ class TestApp {
     FakeAuthApiService? authApi,
     FakeMemberApiService? memberApi,
     FakeRatingApiService? ratingApi,
+    FakeFavoriteApiService? favoriteApi,
   }) : storage = InMemoryTokenStorage(token),
        movieService = movieService ?? FakeMovieLookupService(),
        signUpService = signUpService ?? FakeSignUpService(),
        authApi = authApi ?? FakeAuthApiService(),
        memberApi = memberApi ?? FakeMemberApiService(),
-       ratingApi = ratingApi ?? FakeRatingApiService();
+       ratingApi = ratingApi ?? FakeRatingApiService(),
+       favoriteApi = favoriteApi ?? FakeFavoriteApiService();
 
   final InMemoryTokenStorage storage;
   final TmdbMovieService movieService;
@@ -344,6 +433,7 @@ class TestApp {
   final FakeAuthApiService authApi;
   final FakeMemberApiService memberApi;
   final FakeRatingApiService ratingApi;
+  final FakeFavoriteApiService favoriteApi;
   late GoRouter router;
 
   Widget build({String initialLocation = '/start'}) => MovieLogApp(
@@ -354,6 +444,7 @@ class TestApp {
     authApiService: authApi,
     memberApiService: memberApi,
     ratingApiService: ratingApi,
+    favoriteApiService: favoriteApi,
     onRouterCreated: (value) => router = value,
   );
 

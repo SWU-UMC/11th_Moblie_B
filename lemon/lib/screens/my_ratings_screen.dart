@@ -388,7 +388,7 @@ class _RatingCard extends StatelessWidget {
                   ],
                   const SizedBox(height: 8),
                   Text(
-                    // v7 응답의 updatedAt이 등록 시각과 다르면 수정한 날짜를 보여줍니다.
+                    // v8 응답의 updatedAt이 등록 시각과 다르면 수정한 날짜를 보여줍니다.
                     switch (rating.updatedAt) {
                       final updated? when updated != rating.createdAt =>
                         '${_formatDate(updated)} 수정',

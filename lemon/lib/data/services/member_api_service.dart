@@ -10,14 +10,14 @@ class MemberApiService {
   final Dio _authDio;
 
   Future<MemberInfo> fetchMe() async {
-    final response = await _authDio.get('/v7/members/me');
+    final response = await _authDio.get('/v8/members/me');
     return parseMemberInfo(response.data);
   }
 
   /// 수정할 수 있는 항목은 닉네임뿐입니다. 성공 응답이 곧 최신 내 정보입니다.
   Future<MemberInfo> updateNickname(String nickname) async {
     final response = await _authDio.patch(
-      '/v7/members/me',
+      '/v8/members/me',
       data: {'nickname': nickname},
     );
     return parseMemberInfo(response.data);

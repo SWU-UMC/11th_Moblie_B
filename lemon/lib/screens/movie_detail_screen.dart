@@ -8,8 +8,10 @@ import '../data/models/rating_dto.dart';
 import '../data/models/tmdb_movie_dto.dart';
 import '../data/services/rating_api_service.dart';
 import '../models/movie.dart';
+import '../view_models/favorite_detail_view_model.dart';
 import '../view_models/movie_detail_view_model.dart';
 import '../widgets/confirm_dialog.dart';
+import '../widgets/favorite_button.dart';
 import '../widgets/movielog_app_bar.dart';
 import '../widgets/rating_dialog.dart';
 import '../widgets/tmdb_poster_image.dart';
@@ -72,6 +74,7 @@ class MovieDetailScaffold extends StatelessWidget {
 ///
 /// TMDB 영화라면 위에 [MovieDetailViewModel]이 있어 토큰으로 평점을 등록·수정·삭제할 수 있고,
 /// mock 영화라면 ViewModel이 없어 평점 버튼을 막습니다.
+/// 즐겨찾기도 TMDB 영화에만 [FavoriteDetailViewModel]이 있어 제목 옆 북마크로 등록·해제합니다.
 /// 등록 result로 받은 Rating 객체를 "내 평점" 카드로 보여주고, 같은 카드에서 수정·삭제합니다.
 class MovieDetailScreen extends StatefulWidget {
   const MovieDetailScreen({super.key, required this.movie});
@@ -83,24 +86,30 @@ class MovieDetailScreen extends StatefulWidget {
 }
 
 class _MovieDetailScreenState extends State<MovieDetailScreen> {
-  // 즐겨찾기는 아직 서버 없이 화면 내부 상태로만 관리합니다.
-  bool _isFavorite = false;
+  @override
+  void initState() {
+    super.initState();
+    // 화면이 처음 만들어질 때 서버의 즐겨찾기 여부를 한 번 조회합니다. (build에서 조회하지 않습니다)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<FavoriteDetailViewModel?>()?.load();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final viewModel = context.watch<MovieDetailViewModel?>();
     final myRating = viewModel?.myRating;
+    final hasFavorite = context.read<FavoriteDetailViewModel?>() != null;
 
     return MovieDetailScaffold(
       body: _MovieDetailBody(
         movie: widget.movie,
         myRating: myRating,
+        favoriteButton: hasFavorite ? const FavoriteButton() : null,
         onEdit: _openRatingDialog,
         onDelete: _openDeleteDialog,
       ),
       bottomNavigationBar: _DetailActions(
-        isFavorite: _isFavorite,
-        onFavoritePressed: _toggleFavorite,
         rateLabel: myRating == null ? '평점 남기기' : '평점 수정',
         onRatePressed: viewModel != null ? _openRatingDialog : null,
         notice: viewModel == null
@@ -108,11 +117,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
             : null,
       ),
     );
-  }
-
-  void _toggleFavorite() {
-    setState(() => _isFavorite = !_isFavorite);
-    _showSnackBar(_isFavorite ? '즐겨찾기에 추가했어요.' : '즐겨찾기에서 삭제했어요.');
   }
 
   /// 내 평점이 없으면 등록, 있으면 기존 별점·코멘트를 채운 같은 Dialog로 수정합니다.
@@ -245,9 +249,13 @@ class _MovieDetailBody extends StatelessWidget {
     required this.myRating,
     required this.onEdit,
     required this.onDelete,
+    this.favoriteButton,
   });
 
   final MovieDetailData movie;
+
+  /// 제목·정보 오른쪽의 북마크 버튼입니다. mock 영화는 null입니다.
+  final Widget? favoriteButton;
 
   /// 이번 로그인 세션에서 이 영화에 등록한 평점입니다. (등록·수정 result의 Rating 객체)
   final RatingDto? myRating;
@@ -269,16 +277,33 @@ class _MovieDetailBody extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(movie.title, style: textTheme.headlineSmall),
-                if (movie.meta.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    movie.meta,
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: colors.onSurfaceVariant,
+                // 제목·정보 텍스트를 Row로 감싸고 오른쪽에 북마크 버튼을 둡니다.
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(movie.title, style: textTheme.headlineSmall),
+                          if (movie.meta.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              movie.meta,
+                              style: textTheme.bodyMedium?.copyWith(
+                                color: colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    if (favoriteButton case final button?) ...[
+                      const SizedBox(width: 12),
+                      button,
+                    ],
+                  ],
+                ),
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -382,15 +407,10 @@ class _MovieDetailBody extends StatelessWidget {
 
 class _DetailActions extends StatelessWidget {
   const _DetailActions({
-    required this.isFavorite,
-    required this.onFavoritePressed,
     required this.onRatePressed,
     required this.rateLabel,
     this.notice,
   });
-
-  final bool isFavorite;
-  final VoidCallback onFavoritePressed;
 
   /// 내 평점이 없으면 "평점 남기기", 있으면 "평점 수정"입니다.
   final String rateLabel;
@@ -418,25 +438,9 @@ class _DetailActions extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               ?notice,
+              // 즐겨찾기 버튼은 제목 옆 북마크로 옮겨, 평점 버튼이 전체 너비를 씁니다.
               Row(
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: onFavoritePressed,
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 48),
-                        foregroundColor: colors.primary,
-                        side: BorderSide(color: colors.primary),
-                        shape: const StadiumBorder(),
-                      ),
-                      icon: Icon(
-                        isFavorite ? Icons.bookmark : Icons.bookmark_border,
-                        size: 20,
-                      ),
-                      label: Text(isFavorite ? '즐겨찾기 해제' : '즐겨찾기'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
                   Expanded(
                     child: FilledButton.icon(
                       onPressed: onRatePressed,

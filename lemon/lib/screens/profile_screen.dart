@@ -12,7 +12,7 @@ import '../widgets/profile_header.dart';
 import '../widgets/profile_stats.dart';
 
 /// 마이페이지입니다. 닉네임·이메일은 GET me로 받은 AuthViewModel.member를 그대로 씁니다.
-/// (사진·통계·장르는 기존 디자인 예시이며 v7 GET me 응답에는 없습니다.)
+/// (사진·통계·장르는 기존 디자인 예시이며 v8 GET me 응답에는 없습니다.)
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
@@ -104,6 +104,27 @@ class ProfileScreen extends StatelessWidget {
                 trailing: Icon(Icons.chevron_right, color: colors.primary),
                 // 마이페이지 위에 자식 화면을 쌓아, 뒤로 가면 마이페이지로 돌아옵니다.
                 onTap: () => context.push('/my/ratings'),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: colors.outlineVariant, width: 1.5),
+                ),
+                tileColor: colors.surfaceContainerLowest,
+                title: Text(
+                  '내 즐겨찾기',
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                trailing: Icon(Icons.chevron_right, color: colors.primary),
+                // 내 정보(현재 계정)가 준비된 뒤에만 들어갈 수 있습니다.
+                enabled: member != null,
+                onTap: () => context.push('/my/favorites'),
               ),
               const SizedBox(height: 32),
               const FavoriteGenres(),

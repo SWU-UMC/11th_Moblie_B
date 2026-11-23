@@ -1,5 +1,5 @@
 /// 평점 한 건입니다. 유저별 평점 조회의 배열 원소이자,
-/// v7 등록·수정 응답의 result입니다.
+/// v8 등록·수정 응답의 result입니다.
 class RatingDto {
   const RatingDto({
     required this.ratingId,

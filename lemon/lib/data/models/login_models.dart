@@ -1,4 +1,4 @@
-/// 로그인 요청 body입니다. (`POST /v7/auth/login`)
+/// 로그인 요청 body입니다. (`POST /v8/auth/login`)
 /// 비밀번호는 이 요청에만 담고, 어디에도 저장하거나 로그로 남기지 않습니다.
 class LoginRequest {
   const LoginRequest({required this.email, required this.password});
@@ -17,7 +17,7 @@ class LoginRequest {
 }
 
 /// 로그인 성공 응답의 result입니다.
-/// v7 명세에 memberId가 없으므로 추가하거나 JWT payload에서 추정하지 않습니다.
+/// v8 명세에 memberId가 없으므로 추가하거나 JWT payload에서 추정하지 않습니다.
 class LoginResult {
   const LoginResult({required this.nickname, required this.accessToken});
 

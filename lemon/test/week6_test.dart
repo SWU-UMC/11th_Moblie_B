@@ -382,7 +382,7 @@ void main() {
     });
   });
 
-  group('Real v7 read services', () {
+  group('Real v8 read services', () {
     late _RecordingAdapter adapter;
 
     Dio dio() =>
@@ -398,8 +398,8 @@ void main() {
 
       // 앞뒤 공백은 지우고, 경로에 들어가는 값은 인코딩합니다.
       expect(adapter.paths, [
-        '/v7/members/nickname/${Uri.encodeComponent('영화광')}',
-        '/v7/members/email/movie%40umc.com',
+        '/v8/members/nickname/${Uri.encodeComponent('영화광')}',
+        '/v8/members/email/movie%40umc.com',
       ]);
     });
 
@@ -417,7 +417,7 @@ void main() {
         authDio,
       ).fetchMemberRatings(1);
 
-      expect(adapter.paths, ['/v7/members/1/ratings']);
+      expect(adapter.paths, ['/v8/members/1/ratings']);
       expect(authAdapter.paths, isEmpty);
       expect(ratings.single.movieId, 550);
     });

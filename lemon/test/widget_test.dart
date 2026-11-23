@@ -21,6 +21,7 @@ import 'package:movielog/theme/app_theme.dart';
 import 'package:movielog/view_models/signup_view_model.dart';
 import 'package:movielog/view_models/movie_home_view_model.dart';
 import 'package:movielog/view_models/movie_list_view_model.dart';
+import 'package:movielog/view_models/paged_movies_view_model.dart';
 import 'package:movielog/widgets/genre_filter_chips.dart';
 import 'package:movielog/widgets/movie_card.dart';
 import 'package:movielog/widgets/popular_movie_card.dart';
@@ -165,10 +166,19 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light,
-        home: ChangeNotifierProvider(
-          create: (_) =>
-              MovieListViewModel(service, genrePreferences: genrePreferences)
-                ..loadInitial(),
+        // 9주차: 장르는 MovieListViewModel, 영화 page는 PagedMoviesViewModel이 맡습니다.
+        home: MultiProvider(
+          providers: [
+            ChangeNotifierProvider(
+              create: (_) => MovieListViewModel(
+                service,
+                genrePreferences: genrePreferences,
+              ),
+            ),
+            ChangeNotifierProvider(
+              create: (_) => PagedMoviesViewModel(tmdbApi: service),
+            ),
+          ],
           child: const MoviesScreen(),
         ),
       ),
@@ -302,9 +312,7 @@ void main() {
     );
   });
 
-  testWidgets('Mock detail cannot save rating, favorite snackbar works', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('Mock detail cannot save rating', (WidgetTester tester) async {
     await pumpApp(tester, initialLocation: '/movies/under-the-starlight');
 
     // mock 영화는 TMDB id가 없어 평점 서버에 저장할 수 없습니다.
@@ -316,16 +324,6 @@ void main() {
       ),
     );
     expect(rateButton.onPressed, isNull);
-
-    await tester.tap(find.text('즐겨찾기'));
-    await tester.pumpAndSettle();
-    expect(find.text('즐겨찾기에 추가했어요.'), findsOneWidget);
-    expect(find.byIcon(Icons.bookmark), findsOneWidget);
-
-    await tester.tap(find.text('즐겨찾기 해제'));
-    await tester.pumpAndSettle();
-    expect(find.text('즐겨찾기에서 삭제했어요.'), findsOneWidget);
-    expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
   });
 
   testWidgets('TMDB movie card passes its id to detail and rating POST', (
@@ -526,7 +524,7 @@ void main() {
     await pumpMovies(tester, service);
     await tester.pumpAndSettle();
 
-    expect(find.text('영화를 불러오지 못했어요. 다시 시도해 주세요.'), findsOneWidget);
+    expect(find.text('영화 목록을 불러오지 못했습니다.'), findsOneWidget);
     expect(find.textContaining('DioException'), findsNothing);
 
     await tester.tap(find.text('다시 시도'));
@@ -535,58 +533,6 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(find.text('우주 영화'), findsOneWidget);
-  });
-
-  testWidgets('Genre chips are disabled while discover is loading', (
-    tester,
-  ) async {
-    final service = _FakeTmdbMovieService(delay: const Duration(seconds: 1));
-    await pumpMovies(tester, service);
-    await tester.pump();
-    expect(find.text('영화 목록을 불러오고 있어요'), findsOneWidget);
-
-    expect(chip(tester, 'SF').onSelected, isNull);
-    await tester.tap(find.widgetWithText(ChoiceChip, 'SF'));
-    await tester.pumpAndSettle();
-
-    // 로딩 중 누른 장르는 무시되고, "전체" 요청만 보냈습니다.
-    expect(service.discoverCalls, [(1, null)]);
-    expect(chip(tester, '전체').selected, isTrue);
-    expect(chip(tester, 'SF').onSelected, isNotNull);
-  });
-
-  test('Discover collects at most 30 movies without duplicate ids', () async {
-    // 페이지마다 20개씩 오고, 앞 페이지와 5개씩 겹칩니다.
-    final service = _FakeTmdbMovieService(
-      discover: (page, _) => _page([
-        for (var i = 0; i < 20; i++)
-          _movie((page - 1) * 15 + i, '영화 ${(page - 1) * 15 + i}'),
-      ], totalPages: 10),
-    );
-    final viewModel = MovieListViewModel(service);
-    addTearDown(viewModel.dispose);
-
-    final movies = await viewModel.fetchUpToThirtyMovies();
-
-    expect(movies, hasLength(30));
-    expect(movies.map((movie) => movie.id).toSet(), hasLength(30));
-    // 30개를 채운 뒤에는 다음 페이지를 요청하지 않습니다.
-    expect(service.discoverCalls.map((call) => call.$1), [1, 2]);
-  });
-
-  test('Discover stops at the last page with fewer than 30', () async {
-    final service = _FakeTmdbMovieService(
-      discover: (page, _) => _page([
-        for (var i = 0; i < 5; i++) _movie(page * 100 + i, '영화'),
-      ], totalPages: 2),
-    );
-    final viewModel = MovieListViewModel(service);
-    addTearDown(viewModel.dispose);
-
-    final movies = await viewModel.fetchUpToThirtyMovies(genreId: _sf.id);
-
-    expect(movies, hasLength(10));
-    expect(service.discoverCalls, [(1, _sf.id), (2, _sf.id)]);
   });
 
   testWidgets('Selected genre is saved and restored', (tester) async {
