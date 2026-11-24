@@ -1,7 +1,5 @@
 import '../data/services/sign_up_service.dart';
-import '../data/services/rating_api_service.dart';
 import '../view_models/sign_up_view_model.dart';
-import '../view_models/my_ratings_view_model.dart';
 import '../screens/my_ratings_screen.dart';
 
 import 'package:flutter/material.dart';
@@ -10,7 +8,12 @@ import 'package:go_router/go_router.dart';
 import '../account_screens.dart';
 import '../data/models/tmdb_movie_dto.dart';
 import '../screens/movie_detail_loader.dart';
-import '../view_models/learning_member_session.dart';
+import '../view_models/auth_view_model.dart';
+import '../view_models/edit_profile_view_model.dart';
+import '../data/services/member_api_service.dart';
+import '../screens/login_screen.dart';
+import '../screens/splash_screen.dart';
+import '../screens/edit_profile_screen.dart';
 import '../movie_screens.dart';
 
 import 'package:provider/provider.dart';
@@ -23,12 +26,27 @@ class AppRouter {
   AppRouter._();
 
   static final rootNavigatorKey = GlobalKey<NavigatorState>();
-  static final router = GoRouter(
+  static GoRouter createRouter(AuthViewModel authViewModel) => GoRouter(
+    refreshListenable: authViewModel,
+    redirect: (context, state) =>
+        authRedirect(authViewModel.status, state.uri.path),
     navigatorKey: rootNavigatorKey,
     // Guided Practice에서는 '/home', 전체 흐름 확인은 '/start'.
     initialLocation: '/start',
     routes: [
-      GoRoute(path: '/start', builder: (context, state) => const StartScreen()),
+      GoRoute(
+        path: '/start',
+        builder: (context, state) {
+          final auth = context.read<AuthViewModel>();
+          return SplashScreen(
+            message: auth.message,
+            onRetry: auth.status == AuthStatus.retryRequired
+                ? auth.restoreSession
+                : null,
+          );
+        },
+      ),
+      GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
         path: '/register',
         builder: (context, state) => ChangeNotifierProvider(
@@ -69,35 +87,30 @@ class AppRouter {
               GoRoute(
                 path: 'ratings',
                 parentNavigatorKey: rootNavigatorKey,
+                builder: (context, state) => const MyRatingsScreen(),
+              ),
+              GoRoute(
+                path: 'profile/edit',
+                parentNavigatorKey: rootNavigatorKey,
                 builder: (context, state) {
-                  final id = context.read<LearningMemberSession>().memberId;
-                  if (id == null) {
+                  final auth = context.read<AuthViewModel>();
+                  if (auth.member == null) {
                     return Scaffold(
-                      appBar: AppBar(
-                        centerTitle: true,
-                        title: const Text('내가 등록한 평점'),
-                      ),
+                      appBar: AppBar(title: const Text('프로필 수정')),
                       body: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('학습용 회원가입이 필요합니다.'),
-                            TextButton(
-                              onPressed: () => context.go('/register'),
-                              child: const Text('회원가입'),
-                            ),
-                          ],
+                        child: TextButton(
+                          onPressed: () => auth.loadMember(force: true),
+                          child: const Text('내 정보 불러오기'),
                         ),
                       ),
                     );
                   }
                   return ChangeNotifierProvider(
-                    create: (context) => MyRatingsViewModel(
-                      context.read<RatingApiService>(),
-                      context.read<TmdbMovieService>(),
-                      id,
-                    )..load(),
-                    child: const MyRatingsScreen(),
+                    create: (context) => EditProfileViewModel(
+                      context.read<MemberApiService>(),
+                      auth,
+                    ),
+                    child: const EditProfileScreen(),
                   );
                 },
               ),
@@ -130,4 +143,17 @@ class AppRouter {
     if (path.startsWith('/my')) return 2;
     return 0;
   }
+}
+
+String? authRedirect(AuthStatus status, String location) {
+  const publicPaths = {'/login', '/register'};
+  final atStart = location == '/start';
+  final atPublic = publicPaths.contains(location);
+  return switch (status) {
+    AuthStatus.initializing ||
+    AuthStatus.retryRequired => atStart ? null : '/start',
+    AuthStatus.signedOut ||
+    AuthStatus.authenticating => atPublic ? null : '/login',
+    AuthStatus.signedIn => (atStart || atPublic) ? '/home' : null,
+  };
 }

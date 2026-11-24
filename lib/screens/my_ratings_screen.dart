@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../data/services/rating_api_service.dart';
 import '../data/models/rating_dto.dart';
-import '../view_models/learning_member_session.dart';
+import '../view_models/auth_view_model.dart';
 import '../widgets/rating_dialog.dart';
 
 import 'package:flutter/material.dart';
@@ -25,9 +25,7 @@ class MyRatingsScreen extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.all(16),
-          child: Text(
-            '학습용 회원 ${context.watch<MyRatingsViewModel>().memberId}의 평점입니다.',
-          ),
+          child: Text('이번 로그인에서 등록한 평점입니다. 앱을 다시 시작하면 이전 평점 목록은 복원되지 않습니다.'),
         ),
         Expanded(
           child: Consumer<MyRatingsViewModel>(
@@ -85,7 +83,8 @@ class MyRatingsScreen extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      entry.movie?.title ?? '영화 정보를 찾을 수 없습니다.',
+                                      entry.movie?.title ??
+                                          '영화 #${entry.rating.movieId}',
                                       style: Theme.of(context)
                                           .textTheme
                                           .titleMedium,
@@ -100,10 +99,8 @@ class MyRatingsScreen extends StatelessWidget {
                                   ],
                                 ),
                               ),
-                              if (context
-                                      .watch<LearningMemberSession>()
-                                      .memberId ==
-                                  vm.memberId)
+                              if (context.watch<AuthViewModel>().status ==
+                                  AuthStatus.signedIn)
                                 Column(
                                   children: [
                                     TextButton(
