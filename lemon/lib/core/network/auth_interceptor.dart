@@ -13,15 +13,33 @@ class AuthInterceptor extends Interceptor {
 
   static const host = 'workbook.devnoco.com';
 
-  /// 내 정보와 평점 등록·수정·삭제만 보호 경로입니다.
-  /// 유저별 평점 조회(`/v7/members/{memberId}/ratings`)는 공개 API라 여기에 없습니다.
+  static final _favoriteMoviePath = RegExp(r'^/v8/favorites/[1-9]\d*$');
+
+  /// 보호 요청(JWT를 붙일 요청)인지 판단합니다.
+  /// 유저별 평점 조회(`/v8/members/{memberId}/ratings`)·로그인·회원가입·중복 확인은
+  /// 공개 API라 여기에 없습니다.
   static bool isProtected(RequestOptions options) {
-    final uri = options.uri;
-    final path = uri.path;
-    return uri.host == host &&
-        (path == '/v7/members/me' ||
-            path == '/v7/ratings' ||
-            path.startsWith('/v7/ratings/'));
+    // MovieLog 서버가 아닌 곳(TMDB 등)에는 JWT를 붙이지 않습니다.
+    if (options.uri.host != host) return false;
+    final path = options.uri.path;
+    final method = options.method.toUpperCase();
+
+    // 8주차의 보호 경로(/v7 → /v8): 내 정보, 평점 등록·수정·삭제
+    final w8Protected =
+        path == '/v8/members/me' ||
+        path == '/v8/ratings' ||
+        path.startsWith('/v8/ratings/');
+
+    // 9주차 즐겨찾기: 등록(POST)·목록(GET) / 여부 조회(GET)·해제(DELETE)
+    final favorites =
+        (path == '/v8/favorites' && (method == 'GET' || method == 'POST')) ||
+        (_favoriteMoviePath.hasMatch(path) &&
+            (method == 'GET' || method == 'DELETE'));
+
+    // 영화 기록 저장(Challenge에서만 사용)
+    final movieRecord = path == '/v8/movie-records' && method == 'POST';
+
+    return w8Protected || favorites || movieRecord;
   }
 
   @override

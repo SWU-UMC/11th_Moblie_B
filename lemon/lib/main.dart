@@ -7,10 +7,13 @@ import 'package:provider/provider.dart';
 
 import 'core/network/movie_log_client.dart';
 import 'core/network/tmdb_client.dart';
+import 'core/session/auth_session_bridge.dart';
+import 'core/session/session_guard.dart';
 import 'core/storage/token_storage.dart';
 import 'data/services/auth_api_service.dart';
 import 'data/services/debug_movie_log_services.dart';
 import 'data/services/debug_tmdb_movie_service.dart';
+import 'data/services/favorite_api_service.dart';
 import 'data/services/member_api_service.dart';
 import 'data/services/rating_api_service.dart';
 import 'data/services/sign_up_service.dart';
@@ -37,6 +40,7 @@ class MovieLogApp extends StatelessWidget {
     this.authApiService,
     this.memberApiService,
     this.ratingApiService,
+    this.favoriteApiService,
     this.onRouterCreated,
   });
 
@@ -50,6 +54,7 @@ class MovieLogApp extends StatelessWidget {
   final AuthApiService? authApiService;
   final MemberApiService? memberApiService;
   final RatingApiService? ratingApiService;
+  final FavoriteApiService? favoriteApiService;
 
   /// 테스트에서 현재 위치(router.state)를 확인할 때 씁니다.
   final ValueChanged<GoRouter>? onRouterCreated;
@@ -97,6 +102,12 @@ class MovieLogApp extends StatelessWidget {
                 context.read<_AuthClient>().dio,
               ),
         ),
+        // 즐겨찾기는 JWT로 사용자를 구분하므로 보호용 Client로만 보냅니다.
+        Provider<FavoriteApiService>(
+          create: (context) =>
+              favoriteApiService ??
+              FavoriteApiService(context.read<_AuthClient>().dio),
+        ),
         // Service를 주입받는 ViewModel입니다.
         ChangeNotifierProvider<AuthViewModel>(
           create: (context) => AuthViewModel(
@@ -104,6 +115,25 @@ class MovieLogApp extends StatelessWidget {
             context.read<MemberApiService>(),
             context.read<TokenStorage>(),
           ),
+        ),
+        // AuthViewModel의 세션 버전·검증된 email을 SessionGuard에 전달합니다.
+        Provider<AuthSessionBridge>(
+          create: (context) {
+            final auth = context.read<AuthViewModel>();
+            return AuthSessionBridge(
+              authSignals: auth,
+              sessionVersion: () => auth.sessionVersion,
+              verifiedEmail: () => auth.status == AuthStatus.signedIn
+                  ? auth.member?.email
+                  : null,
+            );
+          },
+          dispose: (_, bridge) => bridge.dispose(),
+          // 화면이 읽기 전에 AuthViewModel의 변화를 놓치지 않도록 바로 만듭니다.
+          lazy: false,
+        ),
+        Provider<SessionGuard>(
+          create: (context) => context.read<AuthSessionBridge>().guard,
         ),
         // 이번 로그인 세션에서 등록한 평점입니다. 세션이 바뀌면 스스로 비웁니다.
         ChangeNotifierProvider<SessionRatingsViewModel>(

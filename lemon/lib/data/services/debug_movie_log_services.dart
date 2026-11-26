@@ -108,11 +108,11 @@ class DebugSignUpService extends SignUpService {
 
   @override
   Future<bool> checkNickname(String nickname) =>
-      _check('/v7/members/nickname', () => super.checkNickname(nickname));
+      _check('/v8/members/nickname', () => super.checkNickname(nickname));
 
   @override
   Future<bool> checkEmail(String email) =>
-      _check('/v7/members/email', () => super.checkEmail(email));
+      _check('/v8/members/email', () => super.checkEmail(email));
 
   @override
   Future<CommonResponse<SignUpResult>> signUp(
@@ -151,7 +151,7 @@ class DebugRatingApiService extends RatingApiService {
 
   @override
   Future<RatingDto> createRating(CreateRatingRequest request) =>
-      _write('/v7/ratings', () => super.createRating(request));
+      _write('/v8/ratings', () => super.createRating(request));
 
   @override
   Future<RatingDto> updateRating({
@@ -159,14 +159,14 @@ class DebugRatingApiService extends RatingApiService {
     required int score,
     String? comment,
   }) => _write(
-    '/v7/ratings/$ratingId',
+    '/v8/ratings/$ratingId',
     () =>
         super.updateRating(ratingId: ratingId, score: score, comment: comment),
   );
 
   @override
   Future<void> deleteRating(int ratingId) =>
-      _write('/v7/ratings/$ratingId', () => super.deleteRating(ratingId));
+      _write('/v8/ratings/$ratingId', () => super.deleteRating(ratingId));
 
   Future<T> _write<T>(String path, Future<T> Function() request) async {
     switch (writeMode) {
@@ -202,7 +202,7 @@ class DebugMemberApiService extends MemberApiService {
         if (!_failedOnce) {
           _failedOnce = true;
           await _wait(1);
-          throw _fakeError('/v7/members/me', 'AUTH_RESTORE_MODE=errorOnce');
+          throw _fakeError('/v8/members/me', 'AUTH_RESTORE_MODE=errorOnce');
         }
         return super.fetchMe();
     }

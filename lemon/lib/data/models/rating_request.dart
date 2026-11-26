@@ -7,7 +7,7 @@ int validateServerScore(double value) {
   return value.toInt();
 }
 
-/// 평점 등록 요청 body입니다. (`POST /v7/ratings`)
+/// 평점 등록 요청 body입니다. (`POST /v8/ratings`)
 /// memberId는 body에도 query에도 넣지 않습니다. 사용자는 토큰으로 식별합니다.
 class CreateRatingRequest {
   const CreateRatingRequest({

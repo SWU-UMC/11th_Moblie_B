@@ -1,34 +1,24 @@
 import 'package:flutter/foundation.dart';
 
+import '../core/utils/safe_notify.dart';
 import '../data/models/tmdb_genre_dto.dart';
-import '../data/models/tmdb_movie_dto.dart';
 import '../data/services/tmdb_movie_service.dart';
 import '../services/genre_preferences.dart';
 
-enum MovieListLoadStatus { idle, loading, success, empty, error }
-
-/// 영화 목록 화면의 장르 목록, 선택 장르, Discover 최대 30개 상태를 관리합니다.
-class MovieListViewModel extends ChangeNotifier {
+/// 영화 목록 화면의 장르 목록과 선택 장르(마지막 선택 저장·복원)를 관리합니다.
+///
+/// 9주차부터 영화 자체는 [PagedMoviesViewModel]이 "더 보기"로 한 page씩 불러옵니다.
+/// (5주차의 Discover 최대 30개 수집 방식은 더 이상 쓰지 않습니다.)
+class MovieListViewModel extends ChangeNotifier with SafeNotify {
   MovieListViewModel(this._service, {GenrePreferences? genrePreferences})
     : _genrePreferences = genrePreferences ?? GenrePreferences();
-
-  static const maxMovies = 30;
 
   final TmdbMovieService _service;
   final GenrePreferences _genrePreferences;
 
-  List<TmdbMovieDto> movies = const [];
   List<TmdbGenreDto> genres = const [];
   int? selectedGenreId;
-  MovieListLoadStatus status = MovieListLoadStatus.idle;
-  String? message;
-
-  int _requestVersion = 0;
-  bool _disposed = false;
-
-  bool get isLoading =>
-      status == MovieListLoadStatus.idle ||
-      status == MovieListLoadStatus.loading;
+  bool genresLoaded = false;
 
   /// 선택한 장르의 이름입니다. "전체"이거나 목록에 없으면 null입니다.
   String? get selectedGenreName {
@@ -38,62 +28,19 @@ class MovieListViewModel extends ChangeNotifier {
     return null;
   }
 
-  /// 페이지 크기를 가정하지 않고, 30개가 되거나 마지막 페이지에 닿을 때까지 요청합니다.
-  /// TMDB id를 Map key로 써서 페이지 사이에 겹친 영화는 하나만 남깁니다.
-  Future<List<TmdbMovieDto>> fetchUpToThirtyMovies({int? genreId}) async {
-    final byId = <int, TmdbMovieDto>{};
-    var pageNumber = 1;
-    var hasNextPage = true;
-
-    while (byId.length < maxMovies && hasNextPage) {
-      final page = await _service.discoverMovies(
-        page: pageNumber,
-        genreId: genreId,
-      );
-
-      for (final movie in page.results) {
-        byId[movie.id] = movie;
-        if (byId.length == maxMovies) break;
-      }
-
-      hasNextPage = pageNumber < page.totalPages && page.results.isNotEmpty;
-      pageNumber++;
-    }
-
-    return byId.values.take(maxMovies).toList();
-  }
-
-  /// 장르 목록과 첫 목록을 불러옵니다. 저장된 장르가 있으면 그 장르로 시작합니다.
-  /// 재시도도 이 메서드를 쓰며, 이때는 현재 선택한 장르를 유지합니다.
-  Future<void> loadInitial() async {
-    final version = ++_requestVersion;
-    status = MovieListLoadStatus.loading;
-    notifyListeners();
-
+  /// 장르 목록을 불러오고 저장된 장르를 복원합니다. 실패해도 "전체"로 목록을 보여줍니다.
+  Future<void> loadGenres() async {
+    if (genresLoaded || isDisposed) return;
     try {
-      if (genres.isEmpty) {
-        genres = await _service.fetchGenres();
-        await _restoreLastGenre();
-        // Discover를 기다리는 동안에도 장르 Chip은 (비활성 상태로) 보이게 합니다.
-        if (_disposed || version != _requestVersion) return;
-        notifyListeners();
-      }
-      final discovered = await fetchUpToThirtyMovies(genreId: selectedGenreId);
-
-      if (_disposed || version != _requestVersion) return;
-      movies = discovered;
-      status = movies.isEmpty
-          ? MovieListLoadStatus.empty
-          : MovieListLoadStatus.success;
+      final loaded = await _service.fetchGenres();
+      if (isDisposed) return;
+      genres = loaded;
+      genresLoaded = true;
+      await _restoreLastGenre();
     } catch (error) {
-      // 네트워크 오류뿐 아니라 응답 파싱 오류도 Error 상태로 보여줍니다.
-      debugPrint('Discover 요청 실패: $error');
-      if (_disposed || version != _requestVersion) return;
-      status = MovieListLoadStatus.error;
-      message = '영화를 불러오지 못했어요. 다시 시도해 주세요.';
+      debugPrint('장르 목록 요청 실패: ${error.runtimeType}');
     }
-
-    if (!_disposed && version == _requestVersion) notifyListeners();
+    notifyIfAlive();
   }
 
   Future<void> _restoreLastGenre() async {
@@ -109,43 +56,12 @@ class MovieListViewModel extends ChangeNotifier {
     if (genres.any((genre) => genre.id == saved)) selectedGenreId = saved;
   }
 
-  /// 장르를 바꾸고 Discover를 page 1부터 다시 요청합니다. null은 "전체"입니다.
-  Future<void> selectGenre(int? genreId) async {
-    // 요청 중에는 장르를 바꾸지 않습니다. (화면의 Chip도 비활성화됩니다.)
-    if (isLoading) return;
-
+  /// 장르를 바꾸고 저장합니다. null은 "전체"입니다. 저장 실패는 선택에 영향을 주지 않습니다.
+  void selectGenre(int? genreId) {
     selectedGenreId = genreId;
-    final version = ++_requestVersion;
-    status = MovieListLoadStatus.loading;
-    notifyListeners();
-
-    // 저장은 기다리지 않고, 실패해도 선택한 장르로 계속 진행합니다.
+    notifyIfAlive();
     _genrePreferences.saveLastGenreId(genreId).catchError((Object error) {
       debugPrint('마지막 장르 저장 실패: $error');
     });
-
-    try {
-      final result = await fetchUpToThirtyMovies(genreId: genreId);
-      if (_disposed || version != _requestVersion) return;
-      movies = result;
-      status = result.isEmpty
-          ? MovieListLoadStatus.empty
-          : MovieListLoadStatus.success;
-    } catch (error) {
-      // 네트워크 오류뿐 아니라 응답 파싱 오류도 Error 상태로 보여줍니다.
-      debugPrint('Discover 요청 실패: $error');
-      if (_disposed || version != _requestVersion) return;
-      status = MovieListLoadStatus.error;
-      message = '해당 장르 영화를 불러오지 못했어요.';
-    }
-
-    if (!_disposed && version == _requestVersion) notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _disposed = true;
-    _requestVersion++;
-    super.dispose();
   }
 }

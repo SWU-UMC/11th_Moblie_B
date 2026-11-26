@@ -38,7 +38,25 @@ class TmdbMovieService {
     return TmdbMoviePageDto.fromJson(response.data as Map<String, dynamic>);
   }
 
-  /// 상세 화면을 주소로 바로 열었을 때(extra 없음) 영화 한 편을 불러옵니다.
+  /// TMDB Search Movie입니다. 검색어가 비어 있으면 ViewModel이 먼저 막아 호출하지 않습니다.
+  Future<TmdbMoviePageDto> searchMovies({
+    required int page,
+    required String query,
+  }) async {
+    final response = await _dio.get(
+      '/search/movie',
+      queryParameters: {
+        'query': query,
+        'page': page,
+        'language': 'ko-KR',
+        'include_adult': false,
+      },
+    );
+    return TmdbMoviePageDto.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// 영화 한 편을 불러옵니다. 상세 화면을 주소로 바로 열었을 때(extra 없음)와
+  /// 즐겨찾기 목록의 movieId로 제목·포스터를 보충할 때 씁니다.
   Future<TmdbMovieDto> fetchMovieDetail(int movieId) async {
     final response = await _dio.get(
       '/movie/$movieId',

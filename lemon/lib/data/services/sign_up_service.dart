@@ -5,7 +5,7 @@ import '../models/common_response.dart';
 import '../models/create_member_request.dart';
 import '../models/sign_up_models.dart';
 
-/// 회원가입 화면의 MovieLog API(v7)를 호출합니다.
+/// 회원가입 화면의 MovieLog API(v8)를 호출합니다.
 /// 공개 API라 공개용 Client(토큰 없음)를 받습니다.
 class SignUpService {
   SignUpService(this._dio);
@@ -16,7 +16,7 @@ class SignUpService {
   /// 성공 응답은 공통 형식이 아닌 직접 객체(`{ "available": true }`)입니다.
   Future<bool> checkNickname(String nickname) async {
     final encoded = Uri.encodeComponent(nickname.trim());
-    final response = await _dio.get('/v7/members/nickname/$encoded');
+    final response = await _dio.get('/v8/members/nickname/$encoded');
     return CheckResult.fromJson(response.data as Map<String, dynamic>)
         .available;
   }
@@ -24,7 +24,7 @@ class SignUpService {
   /// 사용할 수 있으면 true, 이미 사용 중이면 false입니다.
   Future<bool> checkEmail(String email) async {
     final encoded = Uri.encodeComponent(email.trim());
-    final response = await _dio.get('/v7/members/email/$encoded');
+    final response = await _dio.get('/v8/members/email/$encoded');
     return CheckResult.fromJson(response.data as Map<String, dynamic>)
         .available;
   }
@@ -34,7 +34,7 @@ class SignUpService {
   Future<CommonResponse<SignUpResult>> signUp(
     CreateMemberRequest request,
   ) async {
-    final response = await _dio.post('/v7/members', data: request.toJson());
+    final response = await _dio.post('/v8/members', data: request.toJson());
 
     return CommonResponse<SignUpResult>.fromJson(
       response.data as Map<String, dynamic>,

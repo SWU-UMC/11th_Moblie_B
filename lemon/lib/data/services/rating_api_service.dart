@@ -5,7 +5,7 @@ import '../models/common_response.dart';
 import '../models/rating_dto.dart';
 import '../models/rating_request.dart';
 
-/// v7 평점 등록·수정 응답의 result(Rating 객체)를 읽습니다.
+/// v8 평점 등록·수정 응답의 result(Rating 객체)를 읽습니다.
 RatingDto parseRatingResult(Object? data) {
   if (data is! Map<String, dynamic>) {
     throw StateError('평점 응답 형식이 올바르지 않습니다.');
@@ -27,7 +27,7 @@ List<RatingDto> parseRatingList(Object? data) {
       .toList();
 }
 
-/// 평점 API(v7)를 호출합니다.
+/// 평점 API(v8)를 호출합니다.
 ///
 /// - 유저별 평점 조회는 공개 API라 공개용 Client로 보냅니다. (토큰 없음)
 /// - 등록·수정·삭제는 보호 API라 보호용 Client로 보냅니다. (Authorization: Bearer)
@@ -40,16 +40,16 @@ class RatingApiService {
   final Dio _publicDio;
   final Dio _authDio;
 
-  /// 공개 조회입니다. v7 로그인·내 정보 응답에 memberId가 없으므로
+  /// 공개 조회입니다. v8 로그인·내 정보 응답에 memberId가 없으므로
   /// "로그인한 내 평점 목록"으로 쓰지 않습니다. (계약 확인 전까지 미사용)
   Future<List<RatingDto>> fetchMemberRatings(int memberId) async {
-    final response = await _publicDio.get('/v7/members/$memberId/ratings');
+    final response = await _publicDio.get('/v8/members/$memberId/ratings');
     return parseRatingList(response.data);
   }
 
   /// 201이면 result에 저장된 Rating 객체가 옵니다. (v6의 ratingId/null과 다릅니다)
   Future<RatingDto> createRating(CreateRatingRequest request) async {
-    final response = await _authDio.post('/v7/ratings', data: request.toJson());
+    final response = await _authDio.post('/v8/ratings', data: request.toJson());
     return parseRatingResult(response.data);
   }
 
@@ -61,15 +61,15 @@ class RatingApiService {
     String? comment,
   }) async {
     final response = await _authDio.patch(
-      '/v7/ratings/$ratingId',
+      '/v8/ratings/$ratingId',
       data: {'score': score, 'comment': comment},
     );
     return parseRatingResult(response.data);
   }
 
-  /// v7 삭제 성공은 204가 아니라 200 + result null입니다.
+  /// v8 삭제 성공은 204가 아니라 200 + result null입니다.
   Future<void> deleteRating(int ratingId) async {
-    final response = await _authDio.delete('/v7/ratings/$ratingId');
+    final response = await _authDio.delete('/v8/ratings/$ratingId');
     if (response.statusCode != 200) {
       throw StateError('예상하지 못한 삭제 응답: ${response.statusCode}');
     }

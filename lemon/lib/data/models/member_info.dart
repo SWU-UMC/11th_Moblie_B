@@ -1,6 +1,6 @@
 import 'common_response.dart';
 
-/// `GET/PATCH /v7/members/me` 응답의 result입니다.
+/// `GET/PATCH /v8/members/me` 응답의 result입니다.
 /// memberId·password는 응답에 없습니다.
 class MemberInfo {
   const MemberInfo({
